@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-import {
-  getAuth,
-  signInAnonymously,
-  onAuthStateChanged,
-  signInWithCustomToken,
+import { 
+  getAuth, 
+  signInAnonymously, 
+  onAuthStateChanged, 
+  signInWithCustomToken 
 } from 'firebase/auth';
-import {
-  getFirestore,
-  doc,
-  setDoc,
-  onSnapshot,
-  updateDoc,
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  onSnapshot, 
+  updateDoc 
 } from 'firebase/firestore';
 import {
   Trophy,
@@ -34,7 +34,7 @@ import {
   User,
   Clipboard,
   FileText,
-  Info,
+  Info
 } from 'lucide-react';
 
 // --- Firebase Initialization (設定區域) ---
@@ -44,10 +44,13 @@ import {
 // 當您複製到 StackBlitz 時，請「刪除」或「註解掉」區域 A 的程式碼
 // -----------------------------------------------------------------------
 
+
+
 // -----------------------------------------------------------------------
 // [區域 B]：正式環境專用 (StackBlitz / Vercel)
 // 當您複製到 StackBlitz 時，請「取消註解」下方區塊，並填入您的 Firebase 資訊
 // -----------------------------------------------------------------------
+
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBF6CWSPOS1AVIIKrV95r4okSyZpPJYCbE',
@@ -120,7 +123,6 @@ const DEFAULT_CLASSES: ClassInfo[] = [
   { id: '905', name: '905', grade: 9 },
 ];
 
-// 修改: 所有項目的單位皆為 '名次'，且排序皆為 'asc' (數字越小名次越好)
 const DEFAULT_EVENTS: SportEvent[] = [
   {
     id: 'evt_creative',
@@ -275,16 +277,10 @@ const Toast = ({ message, type, onClose }: ToastProps) => {
   }, [onClose]);
 
   const bgClass =
-    type === 'success'
-      ? 'bg-green-600'
-      : type === 'error'
-      ? 'bg-red-600'
-      : 'bg-blue-600';
+    type === 'success' ? 'bg-green-600' : type === 'error' ? 'bg-red-600' : 'bg-blue-600';
 
   return (
-    <div
-      className={`fixed top-4 right-4 ${bgClass} text-white px-6 py-3 rounded-lg shadow-xl z-[100] flex items-center gap-2 animate-fade-in`}
-    >
+    <div className={`fixed top-4 right-4 ${bgClass} text-white px-6 py-3 rounded-lg shadow-xl z-[100] flex items-center gap-2 animate-fade-in`}>
       {type === 'success' && <CheckCircle2 size={20} />}
       {type === 'error' && <AlertTriangle size={20} />}
       {type === 'info' && <Info size={20} />}
@@ -304,15 +300,9 @@ export default function SportsDayApp() {
     'dashboard' | 'admin_input' | 'settings'
   >('dashboard');
   const [selectedGrade, setSelectedGrade] = useState<Grade | 'all'>(7);
-  const [toast, setToast] = useState<{
-    msg: string;
-    type: 'success' | 'error' | 'info';
-  } | null>(null);
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  const showToast = (
-    msg: string,
-    type: 'success' | 'error' | 'info' = 'info'
-  ) => {
+  const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ msg, type });
   };
 
@@ -335,15 +325,7 @@ export default function SportsDayApp() {
 
     // 路徑使用 'artifacts', appId, 'public', 'data' 結構
     // 這是為了在正式環境也能運作，建議保持這個結構
-    const configRef = doc(
-      db,
-      'artifacts',
-      appId,
-      'public',
-      'data',
-      'config',
-      'main'
-    );
+    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main');
     const unsubConfig = onSnapshot(
       configRef,
       (docSnap) => {
@@ -367,15 +349,7 @@ export default function SportsDayApp() {
       (err) => console.error('Config fetch error', err)
     );
 
-    const resultsRef = doc(
-      db,
-      'artifacts',
-      appId,
-      'public',
-      'data',
-      'results',
-      'main'
-    );
+    const resultsRef = doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main');
     const unsubResults = onSnapshot(
       resultsRef,
       (docSnap) => {
@@ -434,14 +408,8 @@ export default function SportsDayApp() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-20">
-      {toast && (
-        <Toast
-          message={toast.msg}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
-
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+      
       <header className="bg-blue-600 text-white p-3 shadow-lg sticky top-0 z-50">
         <div className="max-w-5xl mx-auto flex justify-between items-center">
           <div
@@ -1094,6 +1062,9 @@ function AdminInput({
   );
 
   useEffect(() => {
+    // 這裡我們加了 ?. 來保護 selectedEvent，萬一它還沒載入完成，就先用預設值 1
+    const maxParticipants = selectedEvent?.maxParticipants || 1;
+    
     if (!selectedEventId || !selectedEvent) return;
     const currentEventResults = results[selectedEventId] || {};
 
@@ -1101,7 +1072,7 @@ function AdminInput({
     config.classes.forEach((c) => {
       const existingEntries = currentEventResults[c.id] || [];
       const entries = [];
-      for (let i = 0; i < selectedEvent.maxParticipants; i++) {
+      for (let i = 0; i < maxParticipants; i++) {
         entries.push(existingEntries[i] || { score: '', studentName: '' });
       }
       initializedScores[c.id] = entries;
@@ -1200,11 +1171,13 @@ function AdminInput({
 
     relevantClasses.forEach((c) => {
       const classEntries = [...(newScores[c.id] || [])];
-      while (classEntries.length < (selectedEvent?.maxParticipants || 1)) {
+      const maxPart = selectedEvent?.maxParticipants || 1;
+      
+      while (classEntries.length < maxPart) {
         classEntries.push({ score: '', studentName: '' });
       }
 
-      for (let i = 0; i < (selectedEvent?.maxParticipants || 1); i++) {
+      for (let i = 0; i < maxPart; i++) {
         if (nameIndex < names.length) {
           classEntries[i] = {
             ...classEntries[i],
@@ -1298,6 +1271,7 @@ function AdminInput({
               key={c.id}
               className="border border-slate-100 rounded-lg p-2 bg-slate-50/50"
             >
+              {/* 這裡我們也加上了 ?. 和 || 1 的保護措施 */}
               {Array.from({ length: selectedEvent?.maxParticipants || 1 }).map(
                 (_, idx) => {
                   const record = entries[idx] || { score: '', studentName: '' };
@@ -1308,7 +1282,8 @@ function AdminInput({
                     >
                       <div className="w-16 font-bold text-lg text-slate-700 flex items-center gap-1">
                         {c.name}
-                        {selectedEvent?.maxParticipants > 1 && (
+                        {/* 這裡也一樣，檢查 ?.maxParticipants */}
+                        {(selectedEvent?.maxParticipants || 1) > 1 && (
                           <span className="text-xs text-slate-400 bg-white px-1 rounded border">
                             #{idx + 1}
                           </span>
@@ -1335,7 +1310,7 @@ function AdminInput({
                       <input
                         type="number"
                         step="0.01"
-                        placeholder={`輸入${selectedEvent?.unit}`}
+                        placeholder={`輸入${selectedEvent?.unit || ''}`}
                         className="flex-1 border rounded px-3 py-2 font-mono text-lg font-bold text-blue-600"
                         value={record.score || ''}
                         onChange={(e) =>
@@ -1553,13 +1528,7 @@ function EventEditRow({
   );
 }
 
-function AdminSettings({
-  config,
-  showToast,
-}: {
-  config: AppConfig;
-  showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
-}) {
+function AdminSettings({ config, showToast }: { config: AppConfig; showToast: (msg: string, type: 'success'|'error'|'info') => void }) {
   const [localConfig, setLocalConfig] = useState<AppConfig>(
     JSON.parse(JSON.stringify(config))
   );
