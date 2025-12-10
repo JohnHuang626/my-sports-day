@@ -59,6 +59,7 @@ const initialAuthToken =
 // [區域 B]：正式環境專用 (StackBlitz / Vercel)
 // 請將您的 Firebase Config 填入下方
 // -----------------------------------------------------------------------
+
 const firebaseConfig = {
   apiKey: 'AIzaSyBF6CWSPOS1AVIIKrV95r4okSyZpPJYCbE',
   authDomain: 'sports-day-2024-c035a.firebaseapp.com',
@@ -69,13 +70,19 @@ const firebaseConfig = {
 };
 
 const appId = 'sports-day-2024';
+
+
 // 正式環境不需要 Token
 const initialAuthToken = null;
 
 
 // 初始化 Firebase (這部分通用，不用動)
 // 為了避免白畫面，我們加一個簡單的檢查
-let app, auth, db;
+// 修正：明確指定型別為 any 以通過 TypeScript 嚴格檢查
+let app: any;
+let auth: any;
+let db: any;
+
 try {
   // 只有當設定檔看起來正常時才初始化
   if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
@@ -1758,20 +1765,6 @@ function AdminSettings({ config, showToast }: { config: AppConfig; showToast: (m
               <option value="individual">個人賽</option>
             </select>
           </div>
-          <div className="md:col-span-2">
-            <label className="text-xs font-bold text-slate-400 block mb-1">
-              性別
-            </label>
-            <select
-              className="w-full border p-2 rounded text-sm"
-              value={gender}
-              onChange={(e) => setGender(e.target.value as Gender)}
-            >
-              <option value="Mixed">混合</option>
-              <option value="M">男</option>
-              <option value="F">女</option>
-            </select>
-          </div>
           {eventType === 'individual' && (
             <div className="md:col-span-2">
               <label className="text-xs font-bold text-slate-400 block mb-1">
@@ -1789,7 +1782,7 @@ function AdminSettings({ config, showToast }: { config: AppConfig; showToast: (m
           )}
           <div
             className={
-              eventType === 'individual' ? 'md:col-span-3' : 'md:col-span-5'
+              eventType === 'individual' ? 'md:col-span-2' : 'md:col-span-4'
             }
           >
             <label className="text-xs font-bold text-slate-400 block mb-1">
@@ -1803,7 +1796,7 @@ function AdminSettings({ config, showToast }: { config: AppConfig; showToast: (m
               onChange={(e) => setNewEventPoints(e.target.value)}
             />
           </div>
-          <div className="md:col-span-12 flex items-end mt-2">
+          <div className="md:col-span-2 flex items-end">
             <button
               type="button"
               onClick={addEvent}
