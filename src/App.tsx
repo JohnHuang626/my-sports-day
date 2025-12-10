@@ -71,7 +71,6 @@ const firebaseConfig = {
 
 const appId = 'sports-day-2024';
 
-
 // 正式環境不需要 Token
 const initialAuthToken = null;
 
@@ -1765,6 +1764,20 @@ function AdminSettings({ config, showToast }: { config: AppConfig; showToast: (m
               <option value="individual">個人賽</option>
             </select>
           </div>
+          <div className="md:col-span-2">
+            <label className="text-xs font-bold text-slate-400 block mb-1">
+              性別
+            </label>
+            <select
+              className="w-full border p-2 rounded text-sm"
+              value={gender}
+              onChange={(e) => setGender(e.target.value as Gender)}
+            >
+              <option value="Mixed">混合</option>
+              <option value="M">男</option>
+              <option value="F">女</option>
+            </select>
+          </div>
           {eventType === 'individual' && (
             <div className="md:col-span-2">
               <label className="text-xs font-bold text-slate-400 block mb-1">
@@ -1782,7 +1795,7 @@ function AdminSettings({ config, showToast }: { config: AppConfig; showToast: (m
           )}
           <div
             className={
-              eventType === 'individual' ? 'md:col-span-2' : 'md:col-span-4'
+              eventType === 'individual' ? 'md:col-span-3' : 'md:col-span-5'
             }
           >
             <label className="text-xs font-bold text-slate-400 block mb-1">
@@ -1796,7 +1809,7 @@ function AdminSettings({ config, showToast }: { config: AppConfig; showToast: (m
               onChange={(e) => setNewEventPoints(e.target.value)}
             />
           </div>
-          <div className="md:col-span-2 flex items-end">
+          <div className="md:col-span-12 flex items-end mt-2">
             <button
               type="button"
               onClick={addEvent}
