@@ -41,17 +41,24 @@ import {
 
 // -----------------------------------------------------------------------
 // [區域 A]：預覽環境專用 (目前在此網頁上運作使用)
-// 當您複製到 StackBlitz 時，請「刪除」或「註解掉」區域 A 的程式碼
+// 在 StackBlitz 中，這一段必須被註解掉，否則會出現白畫面
 // -----------------------------------------------------------------------
-
-
+/*
+const firebaseConfig = JSON.parse(
+  typeof __firebase_config !== "undefined"
+    ? __firebase_config
+    : "{}"
+);
+const appId =
+  typeof __app_id !== "undefined" ? __app_id : "default-app-id";
+const initialAuthToken =
+  typeof __initial_auth_token !== "undefined" ? __initial_auth_token : null;
+*/
 
 // -----------------------------------------------------------------------
 // [區域 B]：正式環境專用 (StackBlitz / Vercel)
-// 當您複製到 StackBlitz 時，請「取消註解」下方區塊，並填入您的 Firebase 資訊
+// 請將您的 Firebase Config 填入下方
 // -----------------------------------------------------------------------
-
-
 const firebaseConfig = {
   apiKey: 'AIzaSyBF6CWSPOS1AVIIKrV95r4okSyZpPJYCbE',
   authDomain: 'sports-day-2024-c035a.firebaseapp.com',
@@ -62,11 +69,24 @@ const firebaseConfig = {
 };
 
 const appId = 'sports-day-2024';
-
+// 正式環境不需要 Token
 const initialAuthToken = null;
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+
+
+// 初始化 Firebase (這部分通用，不用動)
+// 為了避免白畫面，我們加一個簡單的檢查
+let app, auth, db;
+try {
+  // 只有當設定檔看起來正常時才初始化
+  if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  }
+} catch (e) {
+  console.error("Firebase 初始化失敗:", e);
+}
+
 
 // --- Types ---
 type Grade = 7 | 8 | 9;
@@ -306,9 +326,28 @@ export default function SportsDayApp() {
     setToast({ msg, type });
   };
 
+  // 檢查是否已設定 Firebase
+  if (!app || !auth || !db) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center bg-slate-50 p-4 text-center">
+        <div className="bg-white p-8 rounded-xl shadow-lg border border-red-200 max-w-md">
+          <AlertTriangle size={48} className="text-red-500 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-slate-800 mb-2">尚未設定 Firebase</h1>
+          <p className="text-slate-600 mb-4">
+            請打開 <code>src/App.tsx</code> 檔案，找到 <code>firebaseConfig</code> 區塊，並填入您從 Firebase Console 取得的金鑰資訊。
+          </p>
+          <div className="bg-slate-100 p-3 rounded text-left text-xs font-mono text-slate-500 overflow-x-auto">
+            apiKey: "您的_API_KEY",<br/>
+            authDomain: "...",<br/>
+            ...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   useEffect(() => {
     const initAuth = async () => {
-      // 檢查是否有 initialAuthToken (預覽環境用)，若無則使用匿名登入
       if (initialAuthToken) {
         await signInWithCustomToken(auth, initialAuthToken);
       } else {
@@ -1309,13 +1348,19 @@ function AdminInput({
 
                       <input
                         type="number"
-                        step="0.01"
+                        step={selectedEvent?.unit === '名次' ? '1' : '0.01'}
+                        min={selectedEvent?.unit === '名次' ? '1' : undefined}
                         placeholder={`輸入${selectedEvent?.unit || ''}`}
                         className="flex-1 border rounded px-3 py-2 font-mono text-lg font-bold text-blue-600"
                         value={record.score || ''}
                         onChange={(e) =>
                           handleScoreChange(c.id, idx, 'score', e.target.value)
                         }
+                        onKeyDown={(e) => {
+                           if (selectedEvent?.unit === '名次' && (e.key === '.' || e.key === 'e')) {
+                             e.preventDefault();
+                           }
+                        }}
                       />
                     </div>
                   );
