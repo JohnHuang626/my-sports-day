@@ -249,7 +249,7 @@ export default function App() {
       <div id="login-modal" className="hidden fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
         <div className="bg-white rounded-lg p-6 w-full max-w-sm shadow-xl">
           <div className="flex justify-between mb-4"><h3 className="font-bold text-lg">工作人員登入</h3><button onClick={() => document.getElementById('login-modal')?.classList.add('hidden')}>❌</button></div>
-          <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} placeholder="請輸入通行碼 (8888)" className="w-full border p-3 rounded mb-4" onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()} />
+          <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} placeholder="請輸入通行碼" className="w-full border p-3 rounded mb-4" onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()} />
           <button onClick={handleAdminLogin} className="w-full bg-blue-600 text-white py-3 rounded font-bold">登入</button>
         </div>
       </div>
