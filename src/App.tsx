@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 // --- 1. Firebase 初始化 (包含您的專屬金鑰) ---
 const localFirebaseConfig = {
@@ -41,6 +41,7 @@ try {
 const previewAppId = typeof window !== 'undefined' ? (window as any).__app_id : undefined;
 const appId = previewAppId || 'jiashin-sports-2024';
 
+// --- Types & Defaults ---
 type Grade = 7 | 8 | 9;
 
 interface ClassInfo {
@@ -473,16 +474,18 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
 
   const handleSave = async () => {
     setSaving(true);
+    // 強制更新本地狀態 (Optimistic Update) 讓畫面立刻生效
+    setResults((prev: any) => ({ ...prev, [selectedEventId]: localScores }));
+    
     if (isOffline) {
-        setResults((prev: any) => ({ ...prev, [selectedEventId]: localScores }));
         alert('已暫存 (離線模式)');
     } else {
         try {
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), { [selectedEventId]: localScores });
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), { [selectedEventId]: localScores }, { merge: true });
             alert('儲存成功');
         } catch (e) { 
             console.error(e);
-            alert('儲存失敗，請檢查網路或權限'); 
+            alert('儲存至資料庫失敗，但畫面已暫存變更。請檢查網路或權限。'); 
         }
     }
     setSaving(false);
@@ -614,8 +617,10 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
 
   const updateConfig = async () => { 
     setIsSaving(true); 
+    // 樂觀更新：強制第一時間直接更新畫面狀態
+    setConfig(localConfig);
+
     if (isOffline) {
-        setConfig(localConfig);
         alert('設定已暫存 (離線模式)');
         setIsSaving(false);
     } else {
@@ -624,7 +629,7 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
             setIsSaving(false); 
             alert('設定已更新'); 
         } catch (e) { 
-            alert('更新失敗'); 
+            alert('更新至資料庫失敗，但畫面已套用變更。請確認權限。'); 
             setIsSaving(false); 
         }
     }
@@ -649,8 +654,10 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
   const handleClearAllResults = async () => {
     if (confirmClearAll) {
         setIsSaving(true);
+        // 樂觀更新：立刻清空前端畫面
+        setResults({});
+        
         if (isOffline) {
-            setResults({});
             alert('所有成績已清空 (離線模式)');
         } else {
             try {
@@ -658,7 +665,7 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
                 alert('所有成績已成功清空！');
             } catch (e) {
                 console.error(e);
-                alert('清除失敗，請檢查權限或網路連線。');
+                alert('清除失敗，但畫面已暫存清空。請檢查權限或網路連線。');
             }
         }
         setConfirmClearAll(false);
