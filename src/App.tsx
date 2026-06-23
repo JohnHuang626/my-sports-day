@@ -1,11 +1,10 @@
-import { useState, useEffect, useMemo } from 'react';
-import type { MouseEvent } from 'react'; // 修正 React.MouseEvent 的嚴格引用
+import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import type { User as FirebaseUser } from 'firebase/auth'; // 修正 Vercel 嚴格型別引用錯誤
+import type { User as FirebaseUser } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 
-// --- 1. Firebase 設定與初始化 ---
+// --- 1. Firebase 初始化 (包含您的專屬金鑰) ---
 const localFirebaseConfig = {
   apiKey: 'AIzaSyA8N_mCRjfCtXB97OpIsiyVHds-bxOmUso',
   authDomain: 'jiashin-sports-day.firebaseapp.com',
@@ -15,10 +14,9 @@ const localFirebaseConfig = {
   appId: '1:758992182792:web:06fc7f9a00ad322a023bbd',
 };
 
-// 修正 Vercel 嚴格檢查：使用 (window as any) 安全讀取環境變數
-const firebaseConfig = typeof window !== 'undefined' && (window as any).__firebase_config 
-  ? JSON.parse((window as any).__firebase_config) 
-  : localFirebaseConfig;
+// 繞過嚴格檢查以相容預覽環境與 Vercel 部署
+const previewConfigStr = typeof window !== 'undefined' ? (window as any).__firebase_config : undefined;
+const firebaseConfig = previewConfigStr ? JSON.parse(previewConfigStr) : localFirebaseConfig;
 
 let app: any = null;
 let auth: any = null;
@@ -40,9 +38,9 @@ try {
   console.error("Firebase Initialization Error:", error);
 }
 
-const appId = 'jiashin-sports-2024';
+const previewAppId = typeof window !== 'undefined' ? (window as any).__app_id : undefined;
+const appId = previewAppId || 'jiashin-sports-2024';
 
-// --- Types & Defaults ---
 type Grade = 7 | 8 | 9;
 
 interface ClassInfo {
@@ -80,20 +78,13 @@ interface AppConfig {
 const DEFAULT_POINTS = [7, 5, 4, 3, 2, 1];
 
 const DEFAULT_CLASSES: ClassInfo[] = [
-  { id: '701', name: '701', grade: 7 },
-  { id: '702', name: '702', grade: 7 },
-  { id: '703', name: '703', grade: 7 },
-  { id: '704', name: '704', grade: 7 },
-  { id: '801', name: '801', grade: 8 },
-  { id: '802', name: '802', grade: 8 },
-  { id: '803', name: '803', grade: 8 },
-  { id: '804', name: '804', grade: 8 },
-  { id: '805', name: '805', grade: 8 },
-  { id: '901', name: '901', grade: 9 },
-  { id: '902', name: '902', grade: 9 },
-  { id: '903', name: '903', grade: 9 },
-  { id: '904', name: '904', grade: 9 },
-  { id: '905', name: '905', grade: 9 },
+  { id: '701', name: '701', grade: 7 }, { id: '702', name: '702', grade: 7 },
+  { id: '703', name: '703', grade: 7 }, { id: '704', name: '704', grade: 7 },
+  { id: '801', name: '801', grade: 8 }, { id: '802', name: '802', grade: 8 },
+  { id: '803', name: '803', grade: 8 }, { id: '804', name: '804', grade: 8 },
+  { id: '805', name: '805', grade: 8 }, { id: '901', name: '901', grade: 9 },
+  { id: '902', name: '902', grade: 9 }, { id: '903', name: '903', grade: 9 },
+  { id: '904', name: '904', grade: 9 }, { id: '905', name: '905', grade: 9 },
 ];
 
 const DEFAULT_EVENTS: SportEvent[] = [
@@ -133,8 +124,9 @@ export default function App() {
 
     const initAuth = async () => {
       try {
-        if (typeof window !== 'undefined' && (window as any).__initial_auth_token) {
-          await signInWithCustomToken(auth, (window as any).__initial_auth_token);
+        const previewToken = typeof window !== 'undefined' ? (window as any).__initial_auth_token : undefined;
+        if (previewToken) {
+          await signInWithCustomToken(auth, previewToken);
         } else {
           await signInAnonymously(auth);
         }
@@ -145,6 +137,7 @@ export default function App() {
       }
     };
     initAuth();
+    
     const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
     return () => unsubscribe();
   }, []);
@@ -171,13 +164,13 @@ export default function App() {
         setDoc(configRef, initialConfig)
           .then(() => setConfig(initialConfig))
           .catch(err => {
-            console.warn("寫入初始設定失敗:", err);
+            console.warn("寫入初始設定失敗，切換至離線模式:", err);
             setIsOfflineMode(true);
             setConfig(initialConfig);
           });
       }
     }, (err) => {
-      console.warn("讀取設定失敗:", err);
+      console.warn("讀取設定失敗，切換至離線模式:", err);
       setIsOfflineMode(true);
       setConfig({ classes: DEFAULT_CLASSES, events: DEFAULT_EVENTS });
     });
@@ -186,9 +179,9 @@ export default function App() {
       if (docSnap.exists()) {
         setResults(docSnap.data() as ResultsData);
       } else {
-        setDoc(resultsRef, {}).catch(console.warn);
+        setDoc(resultsRef, {}).catch(() => setIsOfflineMode(true));
       }
-    }, (err) => console.warn("讀取成績失敗:", err));
+    }, () => setIsOfflineMode(true));
 
     return () => { unsubConfig(); unsubResults(); };
   }, [user, isOfflineMode]);
@@ -211,28 +204,34 @@ export default function App() {
       <header className="bg-blue-600 text-white p-3 shadow-lg sticky top-0 z-50">
         <div className="max-w-5xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
-            <span className="text-2xl">🏆</span>
-            <div className="flex flex-col items-center leading-tight">
-              <h1 className="text-xl font-bold tracking-wide">嘉新國中運動會</h1>
-              <h2 className="text-base font-bold tracking-widest text-blue-100">即時看板</h2>
-            </div>
+            <span className="text-3xl">🏆</span>
+            <div><h1 className="text-xl font-bold">嘉新國中運動會</h1><h2 className="text-sm opacity-80">即時看板</h2></div>
           </div>
           <div>
             {isAdminMode ? (
-              <div className="flex items-center gap-2">
+              <div className="flex gap-2 items-center">
                 <span className="text-xs bg-blue-700 px-2 py-1 rounded hidden sm:inline">管理員</span>
                 <button onClick={() => setCurrentView('dashboard')} className={`p-2 rounded hover:bg-blue-500 ${currentView === 'dashboard' ? 'bg-blue-800' : ''}`} title="看板">🏆</button>
                 <button onClick={() => setCurrentView('admin_input')} className={`p-2 rounded hover:bg-blue-500 ${currentView === 'admin_input' ? 'bg-blue-800' : ''}`} title="成績">✏️</button>
                 <button onClick={() => setCurrentView('settings')} className={`p-2 rounded hover:bg-blue-500 ${currentView === 'settings' ? 'bg-blue-800' : ''}`} title="設定">⚙️</button>
-                <button onClick={() => { setIsAdminMode(false); setCurrentView('dashboard'); }} className="p-2 rounded hover:bg-red-500 bg-red-600 ml-1" title="登出">🚪</button>
+                
+                {/* 登出按鈕：替換成您要求的 SVG 圖示 */}
+                <button onClick={() => { setIsAdminMode(false); setCurrentView('dashboard'); }} className="p-2 rounded hover:bg-red-500 bg-red-600 ml-1 flex items-center justify-center text-white" title="登出">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" x2="9" y1="12" y2="12" />
+                  </svg>
+                </button>
               </div>
             ) : (
-              <button onClick={() => document.getElementById('login-modal')?.classList.remove('hidden')} className="text-sm bg-blue-700 hover:bg-blue-500 px-3 py-1.5 rounded flex items-center gap-1">⚙️ 登入</button>
+              <button onClick={() => document.getElementById('login-modal')?.classList.remove('hidden')} className="text-sm bg-blue-700 hover:bg-blue-500 transition px-3 py-1.5 rounded flex items-center gap-1">⚙️ 登入</button>
             )}
           </div>
         </div>
       </header>
 
+      {/* 離線模式提示 */}
       {isOfflineMode && (
         <div className="bg-orange-100 text-orange-800 px-4 py-2 text-center text-xs font-bold border-b border-orange-200">
           ⚠️ 單機展示模式 (無法連線至資料庫，變更僅暫存於記憶體)
@@ -242,10 +241,10 @@ export default function App() {
       <main className="max-w-5xl mx-auto p-4">
         {currentView === 'dashboard' && <Dashboard config={config} results={results} selectedGrade={selectedGrade} setSelectedGrade={setSelectedGrade} isAdminMode={isAdminMode} />}
         {currentView === 'admin_input' && isAdminMode && <AdminInput config={config} results={results} isOffline={isOfflineMode} setResults={setResults} />}
-        {/* 將 setResults 也傳給設定，以便可以一鍵清除成績 */}
         {currentView === 'settings' && isAdminMode && <AdminSettings config={config} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} />}
       </main>
 
+      {/* Login Modal */}
       <div id="login-modal" className="hidden fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
         <div className="bg-white rounded-lg p-6 w-full max-w-sm shadow-xl">
           <div className="flex justify-between mb-4"><h3 className="font-bold text-lg">工作人員登入</h3><button onClick={() => document.getElementById('login-modal')?.classList.add('hidden')}>❌</button></div>
@@ -256,8 +255,6 @@ export default function App() {
     </div>
   );
 }
-
-// --- Components ---
 
 function Dashboard({ config, results, selectedGrade, setSelectedGrade, isAdminMode }: any) {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -462,7 +459,7 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
       init[c.id] = entries;
     });
     setLocalScores(init);
-  }, [selectedEventId, results, config]);
+  }, [selectedEventId, results, config, selectedEvent]);
 
   const handleChange = (cid: string, idx: number, field: string, val: string) => {
     setLocalScores((prev: any) => {
@@ -475,7 +472,6 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
   const handleSave = async () => {
     setSaving(true);
     if (isOffline) {
-        // 離線模式：直接更新本地 state
         setResults((prev: any) => ({ ...prev, [selectedEventId]: localScores }));
         alert('已暫存 (離線模式)');
     } else {
@@ -561,233 +557,136 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
   );
 }
 
+function EventEditRow({ event, onUpdate, onRemove }: { event: SportEvent; onUpdate: (id: string, updates: Partial<SportEvent>) => void; onRemove: (id: string) => void; }) {
+  const [pointsStr, setPointsStr] = useState((event.rankPoints || DEFAULT_POINTS).join(','));
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [maxPartStr, setMaxPartStr] = useState(String(event.maxParticipants || 1));
+  
+  useEffect(() => { 
+    setPointsStr((event.rankPoints || DEFAULT_POINTS).join(',')); 
+    setMaxPartStr(String(event.maxParticipants || 1)); 
+  }, [event.rankPoints, event.maxParticipants]);
+
+  const handlePointsBlur = () => { 
+    const points = parsePoints(pointsStr); 
+    onUpdate(event.id, { rankPoints: points }); 
+    setPointsStr(points.join(',')); 
+  };
+
+  const handleMaxPartChange = (val: string) => { 
+    setMaxPartStr(val); 
+    const num = parseInt(val); 
+    if (!isNaN(num) && num > 0) { onUpdate(event.id, { maxParticipants: num }); } 
+  };
+
+  const handleMaxPartBlur = () => { 
+    if (!maxPartStr || parseInt(maxPartStr) <= 0) { 
+      setMaxPartStr(String(event.maxParticipants || 1)); 
+      onUpdate(event.id, { maxParticipants: event.maxParticipants || 1 }); 
+    } 
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent) => { 
+    e.stopPropagation(); 
+    if (confirmDelete) { onRemove(event.id); } 
+    else { setConfirmDelete(true); setTimeout(() => setConfirmDelete(false), 3000); } 
+  };
+
+  return (
+    <div className="flex flex-col md:flex-row items-center gap-3 p-3 border rounded bg-white hover:bg-slate-50 transition animate-fade-in">
+      <div className="flex items-center gap-3 flex-1 w-full"><span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${event.type === 'group' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>{event.type === 'group' ? '團體' : '個人'}</span><span className="font-bold text-slate-700 flex-1">{getEventDisplayName(event)}</span><span className="text-xs text-slate-400 whitespace-nowrap">({event.gender === 'Mixed' ? '混合' : event.gender === 'M' ? '男' : '女'})</span></div>
+      <div className="flex items-center gap-2 w-full md:w-auto mt-2 md:mt-0 flex-wrap md:flex-nowrap justify-end">{event.type === 'individual' && (<div className="flex items-center text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded border">👤 <input type="number" min="1" max="10" className="w-8 bg-transparent text-center font-bold outline-none border-b border-slate-300 focus:border-blue-500" value={maxPartStr} onChange={(e) => handleMaxPartChange(e.target.value)} onBlur={handleMaxPartBlur} />人/班</div>)}<div className="flex items-center">🔢 <input type="text" className="border rounded px-2 py-2 text-xs font-mono w-32 md:w-48 text-slate-600 focus:ring-2 focus:ring-blue-200 outline-none" value={pointsStr} onChange={(e) => setPointsStr(e.target.value)} onBlur={handlePointsBlur} placeholder="積分: 7,5,4..." title="編輯積分 (逗號分隔，離開儲存)" /></div><button type="button" onClick={handleDeleteClick} className={`p-2 rounded ml-1 flex items-center gap-1 transition-all duration-200 ${confirmDelete ? 'bg-red-600 text-white w-24 justify-center text-xs font-bold' : 'bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 w-10 justify-center'}`} title="刪除">{confirmDelete ? '確認刪除?' : '🗑️'}</button></div>
+    </div>
+  );
+}
+
 function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
-  const [localConfig, setLocalConfig] = useState(JSON.parse(JSON.stringify(config)));
-  const [newName, setNewName] = useState('');
-  const [newPoints, setNewPoints] = useState('7,5,4,3,2,1');
-  const [newType, setNewType] = useState<EventType>('group');
+  const [localConfig, setLocalConfig] = useState<AppConfig>(JSON.parse(JSON.stringify(config)));
+  const [newEventName, setNewEventName] = useState('');
+  const [newEventPoints, setNewEventPoints] = useState('7,5,4,3,2,1');
+  const [eventType, setEventType] = useState<EventType>('group');
   const [newGender, setNewGender] = useState<Gender>('Mixed');
-  const [newMax, setNewMax] = useState(1);
-  const [saving, setSaving] = useState(false);
-  const [confirmClearAll, setConfirmClearAll] = useState(false); // 新增一鍵清除確認狀態
+  const [maxParticipants, setMaxParticipants] = useState(1);
+  const [isSaving, setIsSaving] = useState(false);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
 
-  const handleAdd = () => {
-    if (!newName) return alert('請輸入名稱');
-    setLocalConfig((prev: any) => ({
-      ...prev,
-      events: [...prev.events, {
-        id: `evt_${Date.now()}`,
-        name: newName,
-        type: newType,
-        gender: newGender,
-        unit: '名次',
-        sortBy: 'asc',
-        rankPoints: parsePoints(newPoints),
-        maxParticipants: newType === 'individual' ? newMax : 1
-      }]
-    }));
-    setNewName('');
-  };
-
-  const removeEvent = (id: string) => {
-    setLocalConfig((prev: any) => ({
-      ...prev,
-      events: prev.events.filter((e: any) => e.id !== id),
-    }));
-  };
-
-  const handleUpdateEvent = (id: string, updates: Partial<SportEvent>) => {
-    setLocalConfig((prev: any) => ({
-      ...prev,
-      events: prev.events.map((e: any) => (e.id === id ? { ...e, ...updates } : e)),
-    }));
-  };
-
-  const parsePoints = (str: string) => str.split(/[,，]/).map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-
-  const handleSave = async () => {
-    setSaving(true);
+  const updateConfig = async () => { 
+    setIsSaving(true); 
     if (isOffline) {
         setConfig(localConfig);
-        alert('已暫存設定 (離線模式)');
+        alert('設定已暫存 (離線模式)');
+        setIsSaving(false);
     } else {
-        try {
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main'), localConfig);
-            alert('設定已儲存');
-        } catch (e) { alert('儲存失敗'); }
+        try { 
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main'), localConfig); 
+            setIsSaving(false); 
+            alert('設定已更新'); 
+        } catch (e) { 
+            alert('更新失敗'); 
+            setIsSaving(false); 
+        }
     }
-    setSaving(false);
   };
 
-  // --- 新增：一鍵清除所有成績功能 ---
-  const handleClearAllResults = async () => {
-    if (isOffline) {
-        setResults({});
-        alert('已清空本地成績 (離線模式)');
-        setConfirmClearAll(false);
-        return;
-    }
+  const addEvent = () => { 
+    if (!newEventName.trim()) { alert('請輸入比賽項目名稱！'); return; } 
+    const newId = `evt_${Date.now()}`; 
+    const points = parsePoints(newEventPoints); 
+    setLocalConfig((prev) => ({ 
+        ...prev, 
+        events: [...prev.events, { id: newId, name: newEventName, type: eventType, gender: newGender, unit: '名次', sortBy: 'asc', rankPoints: points.length > 0 ? points : DEFAULT_POINTS, maxParticipants: eventType === 'individual' ? maxParticipants : 1, },], 
+    })); 
+    setNewEventName(''); 
+  };
 
+  const removeEvent = (id: string) => { setLocalConfig((prev) => ({ ...prev, events: prev.events.filter((e) => e.id !== id), })); };
+  const handleUpdateEvent = (id: string, updates: Partial<SportEvent>) => { setLocalConfig((prev) => ({ ...prev, events: prev.events.map((e) => (e.id === id ? { ...e, ...updates } : e)), })); };
+  const addClass = (grade: Grade) => { const count = localConfig.classes.filter((c) => c.grade === grade).length; const nextNum = count + 1; const className = `${grade}0${nextNum}`; const newClass: ClassInfo = { id: className, name: className, grade }; setLocalConfig((prev) => ({ ...prev, classes: [...prev.classes, newClass].sort((a, b) => a.id.localeCompare(b.id)), })); };
+  const removeLastClass = (grade: Grade) => { const gradeClasses = localConfig.classes.filter((c) => c.grade === grade); if (gradeClasses.length === 0) return; const lastClass = gradeClasses[gradeClasses.length - 1]; setLocalConfig((prev) => ({ ...prev, classes: prev.classes.filter((c) => c.id !== lastClass.id), })); };
+
+  const handleClearAllResults = async () => {
     if (confirmClearAll) {
-        setSaving(true);
-        try {
-            // 將 results/main 文件直接設為空物件
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), {});
-            alert('所有成績已成功清空！');
-            setConfirmClearAll(false);
-        } catch (e) {
-            console.error(e);
-            alert('清除失敗，請檢查權限或網路連線。');
+        setIsSaving(true);
+        if (isOffline) {
+            setResults({});
+            alert('所有成績已清空 (離線模式)');
+        } else {
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), {});
+                alert('所有成績已成功清空！');
+            } catch (e) {
+                console.error(e);
+                alert('清除失敗，請檢查權限或網路連線。');
+            }
         }
-        setSaving(false);
+        setConfirmClearAll(false);
+        setIsSaving(false);
     } else {
         setConfirmClearAll(true);
-        // 3秒後取消確認狀態防呆
         setTimeout(() => setConfirmClearAll(false), 3000);
     }
   };
 
   return (
-    <div className="space-y-8 pb-20">
-      <div className="bg-white p-6 rounded-xl shadow">
-        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><span className="text-yellow-500">🏆</span> 比賽項目管理</h3>
-        <div className="grid grid-cols-12 gap-2 mb-6 p-4 border border-dashed rounded-lg bg-slate-50">
-          <div className="col-span-12 md:col-span-2">
-            <label className="text-xs font-bold text-slate-400 block mb-1">名稱</label>
-            <input type="text" className="w-full border p-2 rounded text-sm" value={newName} onChange={e => setNewName(e.target.value)} placeholder="項目名稱" />
-          </div>
-          <div className="col-span-6 md:col-span-2">
-            <label className="text-xs font-bold text-slate-400 block mb-1">類型</label>
-            <select className="w-full border p-2 rounded text-sm" value={newType} onChange={e => {
-              const t = e.target.value as EventType;
-              setNewType(t);
-              setNewGender(t === 'group' ? 'Mixed' : 'M'); // 自動切換預設性別
-            }}>
-              <option value="group">團體</option>
-              <option value="individual">個人</option>
-            </select>
-          </div>
-          <div className="col-span-6 md:col-span-2">
-            <label className="text-xs font-bold text-slate-400 block mb-1">性別</label>
-            <select className="w-full border p-2 rounded text-sm" value={newGender} onChange={e => setNewGender(e.target.value as Gender)}>
-              <option value="Mixed">混合</option>
-              <option value="M">男</option>
-              <option value="F">女</option>
-            </select>
-          </div>
-          {newType === 'individual' && (
-            <div className="col-span-6 md:col-span-2">
-              <label className="text-xs font-bold text-slate-400 block mb-1">每班人數</label>
-              <input type="number" className="w-full border p-2 rounded text-sm" value={newMax} onChange={e => setNewMax(parseInt(e.target.value))} />
-            </div>
-          )}
-          <div className={`col-span-6 ${newType === 'individual' ? 'md:col-span-2' : 'md:col-span-4'}`}>
-            <label className="text-xs font-bold text-slate-400 block mb-1">預設積分</label>
-            <input type="text" className="w-full border p-2 rounded text-sm font-mono" value={newPoints} onChange={e => setNewPoints(e.target.value)} placeholder="7,5,4..." />
-          </div>
-          <div className="col-span-12 md:col-span-2 flex items-end">
-            <button onClick={handleAdd} className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 flex items-center justify-center gap-1">➕ 新增</button>
-          </div>
-        </div>
-
-        <div className="space-y-2 max-h-96 overflow-y-auto">
-          {localConfig.events.map((e: any) => (
-            <EventEditRow key={e.id} event={e} onUpdate={handleUpdateEvent} onRemove={removeEvent} />
-          ))}
-        </div>
-      </div>
-
-      {/* --- 新增：危險操作區 --- */}
-      <div className="bg-red-50 p-6 rounded-xl shadow border border-red-200 mt-8 mb-24">
-        <h3 className="text-xl font-bold mb-2 text-red-700 flex items-center gap-2">⚠️ 危險操作區</h3>
+    <div className="space-y-8 pb-24">
+      <div className="bg-white p-6 rounded-xl shadow-md"><h3 className="text-xl font-bold mb-4 flex items-center gap-2"><span className="text-blue-500">👥</span> 班級管理</h3><div className="grid grid-cols-1 md:grid-cols-3 gap-6">{([7, 8, 9] as const).map((grade) => (<div key={grade} className="bg-slate-50 p-4 rounded-lg border border-slate-100"><h4 className="font-bold text-center mb-3 text-lg">{grade} 年級</h4><div className="flex flex-wrap gap-2 mb-4 justify-center">{localConfig.classes.filter((c) => c.grade === grade).map((c) => (<span key={c.id} className="bg-white px-2 py-1 rounded shadow-sm text-sm border">{c.name}</span>))}</div><div className="flex gap-2"><button type="button" onClick={() => removeLastClass(grade)} className="flex-1 bg-red-100 text-red-600 py-2 rounded hover:bg-red-200 font-bold">- 減少</button><button type="button" onClick={() => addClass(grade)} className="flex-1 bg-blue-100 text-blue-600 py-2 rounded hover:bg-blue-200 font-bold">+ 增加</button></div></div>))}</div></div>
+      <div className="bg-white p-6 rounded-xl shadow-md"><h3 className="text-xl font-bold mb-4 flex items-center gap-2"><span className="text-yellow-500">🏆</span> 比賽項目管理</h3><div className="grid grid-cols-1 md:grid-cols-12 gap-2 mb-6 p-4 bg-slate-50 rounded-lg border border-dashed border-slate-300"><div className="md:col-span-3"><label className="text-xs font-bold text-slate-400 block mb-1">新項目名稱</label><input type="text" placeholder="例如: 400m接力" className="w-full border p-2 rounded text-sm" value={newEventName} onChange={(e) => setNewEventName(e.target.value)} /></div><div className="md:col-span-2"><label className="text-xs font-bold text-slate-400 block mb-1">類型</label><select className="w-full border p-2 rounded text-sm" value={eventType} onChange={(e) => { const t = e.target.value as EventType; setEventType(t); setNewGender(t === 'group' ? 'Mixed' : 'M'); }}><option value="group">團體賽</option><option value="individual">個人賽</option></select></div><div className="md:col-span-2"><label className="text-xs font-bold text-slate-400 block mb-1">性別</label><select className="w-full border p-2 rounded text-sm" value={newGender} onChange={e => setNewGender(e.target.value as Gender)}><option value="Mixed">混合</option><option value="M">男</option><option value="F">女</option></select></div>{eventType === 'individual' && (<div className="md:col-span-2"><label className="text-xs font-bold text-slate-400 block mb-1">每班人數</label><input type="number" min="1" max="10" className="w-full border p-2 rounded text-sm" value={maxParticipants} onChange={(e) => setMaxParticipants(parseInt(e.target.value))} /></div>)}<div className={eventType === 'individual' ? 'md:col-span-2' : 'md:col-span-3'}><label className="text-xs font-bold text-slate-400 block mb-1">積分設定 (逗號分隔)</label><input type="text" placeholder="7,5,4,3,2,1" className="w-full border p-2 rounded text-sm font-mono" value={newEventPoints} onChange={(e) => setNewEventPoints(e.target.value)} /></div><div className={eventType === 'individual' ? 'md:col-span-1' : 'md:col-span-2'}><button type="button" onClick={addEvent} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 flex items-center justify-center gap-1 text-sm font-bold shadow h-[38px] mt-[21px]">➕ 新增</button></div></div><div className="space-y-2 max-h-96 overflow-y-auto">{localConfig.events.map((event) => (<EventEditRow key={event.id} event={event} onUpdate={handleUpdateEvent} onRemove={removeEvent} />))}</div></div>
+      
+      {/* ⚠️ 危險操作區 */}
+      <div className="bg-red-50 p-6 rounded-xl shadow border border-red-200 mt-8">
+        <h3 className="text-xl font-bold mb-2 text-red-700">⚠️ 危險操作區</h3>
         <p className="text-sm text-red-600 mb-4">這裡的操作將會永久刪除資料，請謹慎使用。新學年開始前，您可以使用此功能一鍵清空所有舊的比賽成績，但保留班級與項目設定。</p>
         <button 
           type="button" 
           onClick={handleClearAllResults} 
-          disabled={saving}
+          disabled={isSaving}
           className={`px-4 py-2 rounded font-bold transition w-full sm:w-auto ${confirmClearAll ? 'bg-red-600 text-white animate-pulse' : 'bg-white text-red-600 border border-red-300 hover:bg-red-100'}`}
         >
           {confirmClearAll ? '⚠️ 確定要清空所有成績嗎？(三秒內再次點擊)' : '🗑️ 一鍵清空所有成績'}
         </button>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t flex justify-end max-w-5xl mx-auto z-10">
-        <button onClick={handleSave} disabled={saving} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-green-500 shadow-lg flex items-center gap-2">{saving ? '儲存中...' : <>✅ 儲存所有設定</>}</button>
-      </div>
-    </div>
-  );
-}
-
-function EventEditRow({ event, onUpdate, onRemove }: any) {
-  const [pointsStr, setPointsStr] = useState((event.rankPoints || DEFAULT_POINTS).join(','));
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [maxPartStr, setMaxPartStr] = useState(String(event.maxParticipants || 1));
-
-  useEffect(() => {
-    setPointsStr((event.rankPoints || DEFAULT_POINTS).join(','));
-    setMaxPartStr(String(event.maxParticipants || 1));
-  }, [event.rankPoints, event.maxParticipants]);
-
-  const handlePointsBlur = () => {
-    const points = parsePoints(pointsStr);
-    onUpdate(event.id, { rankPoints: points });
-    setPointsStr(points.join(','));
-  };
-
-  const handleMaxPartChange = (val: string) => {
-    setMaxPartStr(val);
-    const num = parseInt(val);
-    if (!isNaN(num) && num > 0) {
-      onUpdate(event.id, { maxParticipants: num });
-    }
-  };
-
-  const handleMaxPartBlur = () => {
-    if (!maxPartStr || parseInt(maxPartStr) <= 0) {
-      setMaxPartStr(String(event.maxParticipants || 1));
-      onUpdate(event.id, { maxParticipants: event.maxParticipants || 1 });
-    }
-  };
-
-  // 這裡使用了修正後的 MouseEvent 型別
-  const handleDeleteClick = (e: MouseEvent) => {
-    e.stopPropagation();
-    if (confirmDelete) {
-      onRemove(event.id);
-    } else {
-      setConfirmDelete(true);
-      setTimeout(() => setConfirmDelete(false), 3000);
-    }
-  };
-
-  return (
-    <div className="flex flex-col md:flex-row items-center gap-3 p-3 border rounded bg-white hover:bg-slate-50 transition animate-fade-in">
-      <div className="flex items-center gap-3 flex-1 w-full">
-        <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${event.type === 'group' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>
-          {event.type === 'group' ? '團體' : '個人'}
-        </span>
-        <span className="font-bold text-slate-700 flex-1">{getEventDisplayName(event)}</span>
-        <span className="text-xs text-slate-400 whitespace-nowrap">
-          ({event.gender === 'Mixed' ? '混合' : event.gender === 'M' ? '男' : '女'})
-        </span>
-      </div>
-
-      <div className="flex items-center gap-2 w-full md:w-auto mt-2 md:mt-0 flex-wrap md:flex-nowrap justify-end">
-        {event.type === 'individual' && (
-          <div className="flex items-center text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded border">
-            👤
-            <input type="number" min="1" max="10" className="w-8 bg-transparent text-center font-bold outline-none border-b border-slate-300 focus:border-blue-500 ml-1" value={maxPartStr} onChange={(e) => handleMaxPartChange(e.target.value)} onBlur={handleMaxPartBlur} />
-            人/班
-          </div>
-        )}
-        <div className="flex items-center">
-          🔢
-          <input type="text" className="border rounded px-2 py-2 text-xs font-mono w-32 md:w-48 text-slate-600 focus:ring-2 focus:ring-blue-200 outline-none ml-1" value={pointsStr} onChange={(e) => setPointsStr(e.target.value)} onBlur={handlePointsBlur} placeholder="積分: 7,5,4..." title="編輯積分 (逗號分隔，離開儲存)" />
-        </div>
-        <button type="button" onClick={handleDeleteClick as any} className={`p-2 rounded ml-1 flex items-center gap-1 transition-all duration-200 ${confirmDelete ? 'bg-red-600 text-white w-24 justify-center text-xs font-bold' : 'bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 w-10 justify-center'}`} title="刪除">
-          {confirmDelete ? '確認刪除?' : '🗑️'}
-        </button>
-      </div>
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t flex justify-end max-w-5xl mx-auto z-10"><button type="button" onClick={updateConfig} disabled={isSaving} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-green-500 transition w-full md:w-auto flex items-center justify-center gap-2">{isSaving ? '儲存中...' : <>✅ 儲存所有設定</>}</button></div>
     </div>
   );
 }
