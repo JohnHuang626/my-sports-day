@@ -15,9 +15,9 @@ const localFirebaseConfig = {
   appId: '1:758992182792:web:06fc7f9a00ad322a023bbd',
 };
 
-// 嘗試讀取環境變數，若無則使用本地設定
-const firebaseConfig = typeof __firebase_config !== 'undefined' 
-  ? JSON.parse(__firebase_config) 
+// 修正 Vercel 嚴格檢查：使用 (window as any) 安全讀取環境變數
+const firebaseConfig = typeof window !== 'undefined' && (window as any).__firebase_config 
+  ? JSON.parse((window as any).__firebase_config) 
   : localFirebaseConfig;
 
 let app: any = null;
@@ -133,8 +133,8 @@ export default function App() {
 
     const initAuth = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
+        if (typeof window !== 'undefined' && (window as any).__initial_auth_token) {
+          await signInWithCustomToken(auth, (window as any).__initial_auth_token);
         } else {
           await signInAnonymously(auth);
         }
@@ -652,13 +652,13 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
       <div className="bg-white p-6 rounded-xl shadow">
         <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><span className="text-yellow-500">🏆</span> 比賽項目管理</h3>
         <div className="grid grid-cols-12 gap-2 mb-6 p-4 border border-dashed rounded-lg bg-slate-50">
-          <div className="col-span-12 md:col-span-3">
+          <div className="col-span-12 md:col-span-2">
             <label className="text-xs font-bold text-slate-400 block mb-1">名稱</label>
-            <input type="text" className="w-full border p-2 rounded" value={newName} onChange={e => setNewName(e.target.value)} placeholder="項目名稱" />
+            <input type="text" className="w-full border p-2 rounded text-sm" value={newName} onChange={e => setNewName(e.target.value)} placeholder="項目名稱" />
           </div>
           <div className="col-span-6 md:col-span-2">
             <label className="text-xs font-bold text-slate-400 block mb-1">類型</label>
-            <select className="w-full border p-2 rounded" value={newType} onChange={e => {
+            <select className="w-full border p-2 rounded text-sm" value={newType} onChange={e => {
               const t = e.target.value as EventType;
               setNewType(t);
               setNewGender(t === 'group' ? 'Mixed' : 'M'); // 自動切換預設性別
@@ -669,7 +669,7 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
           </div>
           <div className="col-span-6 md:col-span-2">
             <label className="text-xs font-bold text-slate-400 block mb-1">性別</label>
-            <select className="w-full border p-2 rounded" value={newGender} onChange={e => setNewGender(e.target.value as Gender)}>
+            <select className="w-full border p-2 rounded text-sm" value={newGender} onChange={e => setNewGender(e.target.value as Gender)}>
               <option value="Mixed">混合</option>
               <option value="M">男</option>
               <option value="F">女</option>
@@ -678,10 +678,14 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
           {newType === 'individual' && (
             <div className="col-span-6 md:col-span-2">
               <label className="text-xs font-bold text-slate-400 block mb-1">每班人數</label>
-              <input type="number" className="w-full border p-2 rounded" value={newMax} onChange={e => setNewMax(parseInt(e.target.value))} />
+              <input type="number" className="w-full border p-2 rounded text-sm" value={newMax} onChange={e => setNewMax(parseInt(e.target.value))} />
             </div>
           )}
-          <div className="col-span-12 md:col-span-3 flex items-end">
+          <div className={`col-span-6 ${newType === 'individual' ? 'md:col-span-2' : 'md:col-span-4'}`}>
+            <label className="text-xs font-bold text-slate-400 block mb-1">預設積分</label>
+            <input type="text" className="w-full border p-2 rounded text-sm font-mono" value={newPoints} onChange={e => setNewPoints(e.target.value)} placeholder="7,5,4..." />
+          </div>
+          <div className="col-span-12 md:col-span-2 flex items-end">
             <button onClick={handleAdd} className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 flex items-center justify-center gap-1">➕ 新增</button>
           </div>
         </div>
