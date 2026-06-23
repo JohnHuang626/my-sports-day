@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
-// 引入 Firebase 核心
+import { useState, useEffect, useMemo } from 'react';
+import type { MouseEvent } from 'react'; // 修正 React.MouseEvent 的嚴格引用
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot, updateDoc, collection } from 'firebase/firestore';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import type { User as FirebaseUser } from 'firebase/auth'; // 修正 Vercel 嚴格型別引用錯誤
+import { getFirestore, doc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 
 // --- 1. Firebase 設定與初始化 ---
 const localFirebaseConfig = {
@@ -120,7 +121,6 @@ export default function App() {
   const [results, setResults] = useState<ResultsData>({});
   const [currentView, setCurrentView] = useState<'dashboard' | 'admin_input' | 'settings'>('dashboard');
   const [selectedGrade, setSelectedGrade] = useState<Grade | 'all'>(7);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   // 1. Auth Init
@@ -242,6 +242,7 @@ export default function App() {
       <main className="max-w-5xl mx-auto p-4">
         {currentView === 'dashboard' && <Dashboard config={config} results={results} selectedGrade={selectedGrade} setSelectedGrade={setSelectedGrade} isAdminMode={isAdminMode} />}
         {currentView === 'admin_input' && isAdminMode && <AdminInput config={config} results={results} isOffline={isOfflineMode} setResults={setResults} />}
+        {/* 將 setResults 也傳給設定，以便可以一鍵清除成績 */}
         {currentView === 'settings' && isAdminMode && <AdminSettings config={config} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} />}
       </main>
 
@@ -474,6 +475,7 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
   const handleSave = async () => {
     setSaving(true);
     if (isOffline) {
+        // 離線模式：直接更新本地 state
         setResults((prev: any) => ({ ...prev, [selectedEventId]: localScores }));
         alert('已暫存 (離線模式)');
     } else {
@@ -558,6 +560,7 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
     </div>
   );
 }
+
 function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
   const [localConfig, setLocalConfig] = useState(JSON.parse(JSON.stringify(config)));
   const [newName, setNewName] = useState('');
@@ -566,7 +569,7 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
   const [newGender, setNewGender] = useState<Gender>('Mixed');
   const [newMax, setNewMax] = useState(1);
   const [saving, setSaving] = useState(false);
-  const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [confirmClearAll, setConfirmClearAll] = useState(false); // 新增一鍵清除確認狀態
 
   const handleAdd = () => {
     if (!newName) return alert('請輸入名稱');
@@ -606,7 +609,7 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
     setSaving(true);
     if (isOffline) {
         setConfig(localConfig);
-        alert('已暫存 (離線模式)');
+        alert('已暫存設定 (離線模式)');
     } else {
         try {
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main'), localConfig);
@@ -616,27 +619,30 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
     setSaving(false);
   };
 
+  // --- 新增：一鍵清除所有成績功能 ---
   const handleClearAllResults = async () => {
     if (isOffline) {
         setResults({});
-        alert('已清除所有暫存成績 (離線模式)');
+        alert('已清空本地成績 (離線模式)');
+        setConfirmClearAll(false);
         return;
     }
+
     if (confirmClearAll) {
         setSaving(true);
         try {
-            // 直接將 results/main 覆寫為空物件，達到一鍵清除的效果
+            // 將 results/main 文件直接設為空物件
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), {});
-            alert('所有成績已成功歸零！');
+            alert('所有成績已成功清空！');
             setConfirmClearAll(false);
         } catch (e) {
             console.error(e);
-            alert('清除失敗，請檢查網路或權限');
-        } finally {
-            setSaving(false);
+            alert('清除失敗，請檢查權限或網路連線。');
         }
+        setSaving(false);
     } else {
         setConfirmClearAll(true);
+        // 3秒後取消確認狀態防呆
         setTimeout(() => setConfirmClearAll(false), 3000);
     }
   };
@@ -687,26 +693,96 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
         </div>
       </div>
 
-      <div className="bg-red-50 p-6 rounded-xl shadow-md border border-red-100">
-        <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-red-700">⚠️ 危險操作區</h3>
-        <div className="bg-white p-4 rounded-lg border border-red-200 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div>
-            <h4 className="font-bold text-slate-800">清除所有比賽成績</h4>
-            <p className="text-xs text-slate-500 mt-1">這將會刪除所有項目的比賽成績，讓一切歸零。通常在「新的一學年」運動會開始前執行。（班級與比賽項目設定不會被刪除）</p>
-          </div>
-          <button 
-            type="button"
-            onClick={handleClearAllResults}
-            disabled={saving}
-            className={`whitespace-nowrap px-6 py-3 rounded-lg font-bold transition flex items-center gap-2 shadow-sm ${confirmClearAll ? 'bg-red-600 text-white animate-pulse' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}
-          >
-            {confirmClearAll ? '⚠️ 確定清除嗎？(無法復原)' : '🗑️ 一鍵清除所有成績'}
-          </button>
-        </div>
+      {/* --- 新增：危險操作區 --- */}
+      <div className="bg-red-50 p-6 rounded-xl shadow border border-red-200 mt-8 mb-24">
+        <h3 className="text-xl font-bold mb-2 text-red-700 flex items-center gap-2">⚠️ 危險操作區</h3>
+        <p className="text-sm text-red-600 mb-4">這裡的操作將會永久刪除資料，請謹慎使用。新學年開始前，您可以使用此功能一鍵清空所有舊的比賽成績，但保留班級與項目設定。</p>
+        <button 
+          type="button" 
+          onClick={handleClearAllResults} 
+          disabled={saving}
+          className={`px-4 py-2 rounded font-bold transition w-full sm:w-auto ${confirmClearAll ? 'bg-red-600 text-white animate-pulse' : 'bg-white text-red-600 border border-red-300 hover:bg-red-100'}`}
+        >
+          {confirmClearAll ? '⚠️ 確定要清空所有成績嗎？(三秒內再次點擊)' : '🗑️ 一鍵清空所有成績'}
+        </button>
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t flex justify-end max-w-5xl mx-auto z-10">
         <button onClick={handleSave} disabled={saving} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-green-500 shadow-lg flex items-center gap-2">{saving ? '儲存中...' : <>✅ 儲存所有設定</>}</button>
+      </div>
+    </div>
+  );
+}
+
+function EventEditRow({ event, onUpdate, onRemove }: any) {
+  const [pointsStr, setPointsStr] = useState((event.rankPoints || DEFAULT_POINTS).join(','));
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [maxPartStr, setMaxPartStr] = useState(String(event.maxParticipants || 1));
+
+  useEffect(() => {
+    setPointsStr((event.rankPoints || DEFAULT_POINTS).join(','));
+    setMaxPartStr(String(event.maxParticipants || 1));
+  }, [event.rankPoints, event.maxParticipants]);
+
+  const handlePointsBlur = () => {
+    const points = parsePoints(pointsStr);
+    onUpdate(event.id, { rankPoints: points });
+    setPointsStr(points.join(','));
+  };
+
+  const handleMaxPartChange = (val: string) => {
+    setMaxPartStr(val);
+    const num = parseInt(val);
+    if (!isNaN(num) && num > 0) {
+      onUpdate(event.id, { maxParticipants: num });
+    }
+  };
+
+  const handleMaxPartBlur = () => {
+    if (!maxPartStr || parseInt(maxPartStr) <= 0) {
+      setMaxPartStr(String(event.maxParticipants || 1));
+      onUpdate(event.id, { maxParticipants: event.maxParticipants || 1 });
+    }
+  };
+
+  // 這裡使用了修正後的 MouseEvent 型別
+  const handleDeleteClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (confirmDelete) {
+      onRemove(event.id);
+    } else {
+      setConfirmDelete(true);
+      setTimeout(() => setConfirmDelete(false), 3000);
+    }
+  };
+
+  return (
+    <div className="flex flex-col md:flex-row items-center gap-3 p-3 border rounded bg-white hover:bg-slate-50 transition animate-fade-in">
+      <div className="flex items-center gap-3 flex-1 w-full">
+        <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${event.type === 'group' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>
+          {event.type === 'group' ? '團體' : '個人'}
+        </span>
+        <span className="font-bold text-slate-700 flex-1">{getEventDisplayName(event)}</span>
+        <span className="text-xs text-slate-400 whitespace-nowrap">
+          ({event.gender === 'Mixed' ? '混合' : event.gender === 'M' ? '男' : '女'})
+        </span>
+      </div>
+
+      <div className="flex items-center gap-2 w-full md:w-auto mt-2 md:mt-0 flex-wrap md:flex-nowrap justify-end">
+        {event.type === 'individual' && (
+          <div className="flex items-center text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded border">
+            👤
+            <input type="number" min="1" max="10" className="w-8 bg-transparent text-center font-bold outline-none border-b border-slate-300 focus:border-blue-500 ml-1" value={maxPartStr} onChange={(e) => handleMaxPartChange(e.target.value)} onBlur={handleMaxPartBlur} />
+            人/班
+          </div>
+        )}
+        <div className="flex items-center">
+          🔢
+          <input type="text" className="border rounded px-2 py-2 text-xs font-mono w-32 md:w-48 text-slate-600 focus:ring-2 focus:ring-blue-200 outline-none ml-1" value={pointsStr} onChange={(e) => setPointsStr(e.target.value)} onBlur={handlePointsBlur} placeholder="積分: 7,5,4..." title="編輯積分 (逗號分隔，離開儲存)" />
+        </div>
+        <button type="button" onClick={handleDeleteClick as any} className={`p-2 rounded ml-1 flex items-center gap-1 transition-all duration-200 ${confirmDelete ? 'bg-red-600 text-white w-24 justify-center text-xs font-bold' : 'bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 w-10 justify-center'}`} title="刪除">
+          {confirmDelete ? '確認刪除?' : '🗑️'}
+        </button>
       </div>
     </div>
   );
