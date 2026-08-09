@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
-// --- 1. Firebase 初始化 ---
+// --- 1. Firebase 初始化 (包含您的專屬金鑰) ---
 const localFirebaseConfig = {
   apiKey: 'AIzaSyA8N_mCRjfCtXB97OpIsiyVHds-bxOmUso',
   authDomain: 'jiashin-sports-day.firebaseapp.com',
@@ -14,9 +14,9 @@ const localFirebaseConfig = {
   appId: '1:758992182792:web:06fc7f9a00ad322a023bbd',
 };
 
-const firebaseConfig = typeof (window as any).__firebase_config !== 'undefined' 
-  ? JSON.parse((window as any).__firebase_config) 
-  : localFirebaseConfig;
+// 繞過嚴格檢查以相容預覽環境與 Vercel 部署
+const previewConfigStr = typeof window !== 'undefined' ? (window as any).__firebase_config : undefined;
+const firebaseConfig = previewConfigStr ? JSON.parse(previewConfigStr) : localFirebaseConfig;
 
 let app: any = null;
 let auth: any = null;
@@ -38,7 +38,7 @@ try {
   console.error("Firebase Initialization Error:", error);
 }
 
-const previewAppId = typeof (window as any).__app_id !== 'undefined' ? (window as any).__app_id : undefined;
+const previewAppId = typeof window !== 'undefined' ? (window as any).__app_id : undefined;
 const appId = previewAppId || 'jiashin-sports-2024';
 
 // --- Types & Defaults ---
@@ -125,7 +125,7 @@ export default function App() {
 
     const initAuth = async () => {
       try {
-        const previewToken = typeof (window as any).__initial_auth_token !== 'undefined' ? (window as any).__initial_auth_token : undefined;
+        const previewToken = typeof window !== 'undefined' ? (window as any).__initial_auth_token : undefined;
         if (previewToken) {
           await signInWithCustomToken(auth, previewToken);
         } else {
@@ -201,8 +201,8 @@ export default function App() {
   if (!config) return <div className="flex h-screen items-center justify-center text-blue-500 font-bold animate-pulse">資料載入中...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-20 print:bg-white print:pb-0">
-      <header className="bg-blue-600 text-white p-3 shadow-lg sticky top-0 z-50 print:hidden">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-20">
+      <header className="bg-blue-600 text-white p-3 shadow-lg sticky top-0 z-50">
         <div className="max-w-5xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
             <span className="text-3xl">🏆</span>
@@ -215,11 +215,13 @@ export default function App() {
                 <button onClick={() => setCurrentView('dashboard')} className={`p-2 rounded hover:bg-blue-500 ${currentView === 'dashboard' ? 'bg-blue-800' : ''}`} title="看板">🏆</button>
                 <button onClick={() => setCurrentView('admin_input')} className={`p-2 rounded hover:bg-blue-500 ${currentView === 'admin_input' ? 'bg-blue-800' : ''}`} title="成績">✏️</button>
                 <button onClick={() => setCurrentView('settings')} className={`p-2 rounded hover:bg-blue-500 ${currentView === 'settings' ? 'bg-blue-800' : ''}`} title="設定">⚙️</button>
+                
+                {/* --- 這裡為登出按鈕替換了您指定的 SVG 圖示 --- */}
                 <button onClick={() => { setIsAdminMode(false); setCurrentView('dashboard'); }} className="p-2 rounded hover:bg-red-500 bg-red-600 ml-1 flex items-center justify-center text-white" title="登出">
                   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                    <polyline points="16 17 21 12 16 7"></polyline>
-                    <line x1="21" y1="12" x2="9" y2="12"></line>
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" x2="9" y1="12" y2="12" />
                   </svg>
                 </button>
               </div>
@@ -232,12 +234,12 @@ export default function App() {
 
       {/* 離線模式提示 */}
       {isOfflineMode && (
-        <div className="bg-orange-100 text-orange-800 px-4 py-2 text-center text-xs font-bold border-b border-orange-200 print:hidden">
+        <div className="bg-orange-100 text-orange-800 px-4 py-2 text-center text-xs font-bold border-b border-orange-200">
           ⚠️ 單機展示模式 (無法連線至資料庫，變更僅暫存於記憶體)
         </div>
       )}
 
-      <main className="max-w-5xl mx-auto p-4 print:p-0 print:m-0 print:max-w-none print:w-full">
+      <main className="max-w-5xl mx-auto p-4">
         {currentView === 'dashboard' && <Dashboard config={config} results={results} selectedGrade={selectedGrade} setSelectedGrade={setSelectedGrade} isAdminMode={isAdminMode} />}
         {currentView === 'admin_input' && isAdminMode && <AdminInput config={config} results={results} isOffline={isOfflineMode} setResults={setResults} />}
         {currentView === 'settings' && isAdminMode && <AdminSettings config={config} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} />}
@@ -247,6 +249,8 @@ export default function App() {
       <div id="login-modal" className="hidden fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
         <div className="bg-white rounded-lg p-6 w-full max-w-sm shadow-xl">
           <div className="flex justify-between mb-4"><h3 className="font-bold text-lg">工作人員登入</h3><button onClick={() => document.getElementById('login-modal')?.classList.add('hidden')}>❌</button></div>
+          
+          {/* --- 這裡移除了 placeholder 中的 (8888) --- */}
           <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} placeholder="請輸入通行碼" className="w-full border p-3 rounded mb-4" onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()} />
           <button onClick={handleAdminLogin} className="w-full bg-blue-600 text-white py-3 rounded font-bold">登入</button>
         </div>
@@ -295,116 +299,100 @@ function Dashboard({ config, results, selectedGrade, setSelectedGrade, isAdminMo
   };
 
   return (
-    <div className="w-full">
-      {/* 列印專用排版 */}
-      {isAdminMode && (
-        <PrintReport config={config} standings={standings} getTop3={getTop3} />
+    <div className="space-y-6">
+      {!selectedEventId && (
+        <>
+          {isAdminMode && (
+            <div className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-xl shadow-lg p-5 text-white relative overflow-hidden mb-6">
+              <div className="font-bold flex items-center gap-2">👑 全校總冠軍 (僅管理員可見)</div>
+              <div className="text-5xl font-extrabold mt-2">{standings.schoolChamp?.name || '-'}</div>
+              <div className="mt-1 font-bold opacity-90">積分: {standings.classPoints[standings.schoolChamp?.id || ''] || 0}</div>
+              <div className="text-white/20 absolute -right-6 -bottom-6 rotate-12 text-8xl">🏆</div>
+            </div>
+          )}
+          <div className="bg-white rounded-xl shadow p-4 border border-slate-100 mb-6">
+            <h3 className="font-bold text-slate-500 mb-3 flex items-center gap-2">🏅 各年級領先</h3>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {[7, 8, 9].map(g => (
+                <div key={g} className="bg-slate-50 rounded p-3">
+                  <div className="text-xs text-slate-400 mb-1">{g}年級</div>
+                  <div className="text-xl font-bold text-blue-600">{standings.gradeChamps[g]?.name || '-'}</div>
+                  <div className="text-xs text-slate-500">{standings.classPoints[standings.gradeChamps[g]?.id || ''] || 0} 分</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
       )}
 
-      {/* 網頁互動版面 (列印時隱藏) */}
-      <div className="print:hidden space-y-6">
-        {!selectedEventId && (
-          <>
-            {isAdminMode && (
-              <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow border border-slate-100 mb-6">
-                <div className="text-slate-600 font-bold">管理員面板</div>
-                <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold shadow-md hover:bg-slate-700 transition flex items-center gap-2">
-                  🖨️ 列印全部成績總表
-                </button>
-              </div>
-            )}
-            {isAdminMode && (
-              <div className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-xl shadow-lg p-5 text-white relative overflow-hidden mb-6">
-                <div className="font-bold flex items-center gap-2">👑 全校總冠軍 (僅管理員可見)</div>
-                <div className="text-5xl font-extrabold mt-2">{standings.schoolChamp?.name || '-'}</div>
-                <div className="mt-1 font-bold opacity-90">積分: {standings.classPoints[standings.schoolChamp?.id || ''] || 0}</div>
-                <div className="text-white/20 absolute -right-6 -bottom-6 rotate-12 text-8xl">🏆</div>
-              </div>
-            )}
-            <div className="bg-white rounded-xl shadow p-4 border border-slate-100 mb-6">
-              <h3 className="font-bold text-slate-500 mb-3 flex items-center gap-2">🏅 各年級領先</h3>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                {[7, 8, 9].map(g => (
-                  <div key={g} className="bg-slate-50 rounded p-3">
-                    <div className="text-xs text-slate-400 mb-1">{g}年級</div>
-                    <div className="text-xl font-bold text-blue-600">{standings.gradeChamps[g]?.name || '-'}</div>
-                    <div className="text-xs text-slate-500">{standings.classPoints[standings.gradeChamps[g]?.id || ''] || 0} 分</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {([7, 8, 9] as const).map(g => (
-            <button key={g} onClick={() => { setSelectedGrade(g); setSelectedEventId(null); }} className={`px-6 py-2 rounded-full font-bold whitespace-nowrap shadow-sm transition ${selectedGrade === g ? 'bg-blue-600 text-white ring-2 ring-blue-300' : 'bg-white text-slate-600 hover:bg-slate-100'}`}>{g} 年級</button>
-          ))}
-          <button onClick={() => { setSelectedGrade('all'); setSelectedEventId(null); }} className={`px-6 py-2 rounded-full font-bold whitespace-nowrap shadow-sm transition ${selectedGrade === 'all' ? 'bg-slate-800 text-white ring-2 ring-slate-400' : 'bg-white text-slate-600 hover:bg-slate-100'}`}>全校列表</button>
-        </div>
-
-        {selectedEventId ? (
-          <div className="bg-white rounded-xl shadow overflow-hidden animate-fade-in">
-            <div className="bg-slate-100 p-4 border-b flex justify-between items-center sticky top-0 z-10">
-              <button onClick={() => setSelectedEventId(null)} className="text-blue-600 font-bold hover:bg-blue-200 px-3 py-1 rounded transition">← 返回</button>
-              <h2 className="font-bold text-lg">{getEventDisplayName(config.events.find((e: any) => e.id === selectedEventId))}</h2>
-            </div>
-            <div className="overflow-x-auto"><ResultTable eventId={selectedEventId} config={config} results={results} gradeFilter={selectedGrade} /></div>
-          </div>
-        ) : (
-          <>
-            {!selectedEventId && (
-              <div className="bg-white rounded-xl shadow overflow-hidden border border-slate-100 mb-6">
-                <div className="bg-slate-50 p-3 font-bold text-slate-700 flex items-center gap-2">📊 總錦標積分榜</div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead><tr className="text-slate-400 border-b bg-slate-50/50"><th className="p-3 w-16 text-center">排名</th><th className="p-3">班級</th><th className="p-3 text-right">積分</th></tr></thead>
-                    <tbody>{standings.sorted.filter((c: any) => selectedGrade === 'all' || c.grade === selectedGrade).map((c: any, idx: number) => (
-                      <tr key={c.id} className={`border-b last:border-0 ${idx < 3 ? 'bg-yellow-50/60' : ''}`}>
-                        <td className="p-3 font-bold text-slate-500 text-center">{idx + 1}</td>
-                        <td className="p-3 font-bold text-lg">{c.name}</td>
-                        <td className="p-3 text-right font-mono font-bold text-blue-600 text-lg">{standings.classPoints[c.id]}</td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-            <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2">🏃 各項比賽成績</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {config.events.map((event: any) => {
-                if (selectedGrade === 'all') return null;
-                const top3 = getTop3(event.id, selectedGrade as Grade);
-                return (
-                  <div key={event.id} onClick={() => setSelectedEventId(event.id)} className="bg-white rounded-xl shadow border border-slate-100 p-4 cursor-pointer hover:shadow-lg hover:border-blue-300 transition group">
-                    <div className="flex justify-between items-center mb-3">
-                      <div className="font-bold text-slate-800 flex items-center gap-2">
-                        {event.type === 'group' ? <span>👥</span> : <span>🏃</span>}
-                        {getEventDisplayName(event)}
-                      </div>
-                      <span className="text-slate-300 group-hover:text-blue-500">➜</span>
-                    </div>
-                    {top3.length > 0 ? (
-                      <div className="space-y-2 text-sm">
-                        {top3.map((item: any, idx: number) => (
-                          <div key={idx} className="flex justify-between items-center">
-                            <div className="flex items-center gap-2">
-                              <span className={`w-5 h-5 flex items-center justify-center rounded-full text-xs font-bold text-white ${idx===0?'bg-yellow-400':idx===1?'bg-gray-400':'bg-orange-400'}`}>{idx + 1}</span>
-                              <span>{item.class} <span className="text-xs text-slate-400">{item.record.studentName}</span></span>
-                            </div>
-                            <span className="font-mono font-bold text-blue-600">{item.record.score} {event.unit}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : <div className="text-slate-400 text-sm italic py-2 text-center">尚無成績</div>}
-                  </div>
-                );
-              })}
-              {selectedGrade === 'all' && <div className="col-span-full text-center text-slate-400 py-10 italic">請選擇年級以查看各項比賽詳細成績</div>}
-            </div>
-          </>
-        )}
+      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+        {([7, 8, 9] as const).map(g => (
+          <button key={g} onClick={() => { setSelectedGrade(g); setSelectedEventId(null); }} className={`px-6 py-2 rounded-full font-bold whitespace-nowrap shadow-sm transition ${selectedGrade === g ? 'bg-blue-600 text-white ring-2 ring-blue-300' : 'bg-white text-slate-600 hover:bg-slate-100'}`}>{g} 年級</button>
+        ))}
+        <button onClick={() => { setSelectedGrade('all'); setSelectedEventId(null); }} className={`px-6 py-2 rounded-full font-bold whitespace-nowrap shadow-sm transition ${selectedGrade === 'all' ? 'bg-slate-800 text-white ring-2 ring-slate-400' : 'bg-white text-slate-600 hover:bg-slate-100'}`}>全校列表</button>
       </div>
+
+      {selectedEventId ? (
+        <div className="bg-white rounded-xl shadow overflow-hidden animate-fade-in">
+          <div className="bg-slate-100 p-4 border-b flex justify-between items-center sticky top-0 z-10">
+            <button onClick={() => setSelectedEventId(null)} className="text-blue-600 font-bold hover:bg-blue-200 px-3 py-1 rounded transition">← 返回</button>
+            <h2 className="font-bold text-lg">{getEventDisplayName(config.events.find((e: any) => e.id === selectedEventId))}</h2>
+          </div>
+          <div className="overflow-x-auto"><ResultTable eventId={selectedEventId} config={config} results={results} gradeFilter={selectedGrade} /></div>
+        </div>
+      ) : (
+        <>
+          {!selectedEventId && (
+            <div className="bg-white rounded-xl shadow overflow-hidden border border-slate-100 mb-6">
+              <div className="bg-slate-50 p-3 font-bold text-slate-700 flex items-center gap-2">📊 總錦標積分榜</div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead><tr className="text-slate-400 border-b bg-slate-50/50"><th className="p-3 w-16 text-center">排名</th><th className="p-3">班級</th><th className="p-3 text-right">積分</th></tr></thead>
+                  <tbody>{standings.sorted.filter((c: any) => selectedGrade === 'all' || c.grade === selectedGrade).map((c: any, idx: number) => (
+                    <tr key={c.id} className={`border-b last:border-0 ${idx < 3 ? 'bg-yellow-50/60' : ''}`}>
+                      <td className="p-3 font-bold text-slate-500 text-center">{idx + 1}</td>
+                      <td className="p-3 font-bold text-lg">{c.name}</td>
+                      <td className="p-3 text-right font-mono font-bold text-blue-600 text-lg">{standings.classPoints[c.id]}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2">🏃 各項比賽成績</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {config.events.map((event: any) => {
+              if (selectedGrade === 'all') return null;
+              const top3 = getTop3(event.id, selectedGrade as Grade);
+              return (
+                <div key={event.id} onClick={() => setSelectedEventId(event.id)} className="bg-white rounded-xl shadow border border-slate-100 p-4 cursor-pointer hover:shadow-lg hover:border-blue-300 transition group">
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="font-bold text-slate-800 flex items-center gap-2">
+                      {event.type === 'group' ? <span>👥</span> : <span>🏃</span>}
+                      {getEventDisplayName(event)}
+                    </div>
+                    <span className="text-slate-300 group-hover:text-blue-500">➜</span>
+                  </div>
+                  {top3.length > 0 ? (
+                    <div className="space-y-2 text-sm">
+                      {top3.map((item: any, idx: number) => (
+                        <div key={idx} className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-5 h-5 flex items-center justify-center rounded-full text-xs font-bold text-white ${idx===0?'bg-yellow-400':idx===1?'bg-gray-400':'bg-orange-400'}`}>{idx + 1}</span>
+                            <span>{item.class} <span className="text-xs text-slate-400">{item.record.studentName}</span></span>
+                          </div>
+                          <span className="font-mono font-bold text-blue-600">{item.record.score} {event.unit}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <div className="text-slate-400 text-sm italic py-2 text-center">尚無成績</div>}
+                </div>
+              );
+            })}
+            {selectedGrade === 'all' && <div className="col-span-full text-center text-slate-400 py-10 italic">請選擇年級以查看各項比賽詳細成績</div>}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -708,97 +696,6 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t flex justify-end max-w-5xl mx-auto z-10"><button type="button" onClick={updateConfig} disabled={isSaving} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-green-500 transition w-full md:w-auto flex items-center justify-center gap-2">{isSaving ? '儲存中...' : <>✅ 儲存所有設定</>}</button></div>
-    </div>
-  );
-}
-
-// --- 新增：列印總表元件 ---
-function PrintReport({ config, standings, getTop3 }: any) {
-  return (
-    <div className="hidden print:block w-full text-black bg-white">
-      <div className="text-center mb-6">
-        <h1 className="text-3xl font-bold mb-2">嘉新國中運動會 成績總表</h1>
-        <p className="text-sm text-gray-500">列印時間：{new Date().toLocaleString()}</p>
-      </div>
-
-      <div className="mb-8">
-        <h2 className="text-xl font-bold border-b-2 border-black mb-3 pb-1 flex items-center gap-2">📊 各年級總錦標排名</h2>
-        <div className="grid grid-cols-3 gap-6">
-          {[7, 8, 9].map(grade => {
-            const gradeClasses = standings.sorted.filter((c: any) => c.grade === grade);
-            return (
-              <div key={grade}>
-                <h3 className="font-bold mb-2 text-center text-lg">{grade} 年級</h3>
-                <table className="w-full text-sm border-collapse border border-black">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="border border-black p-1.5 text-center w-16">名次</th>
-                      <th className="border border-black p-1.5 text-center">班級</th>
-                      <th className="border border-black p-1.5 text-center">積分</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {gradeClasses.map((c: any, idx: number) => (
-                      <tr key={c.id}>
-                        <td className="border border-black p-1.5 text-center font-bold">{idx + 1}</td>
-                        <td className="border border-black p-1.5 text-center">{c.name}</td>
-                        <td className="border border-black p-1.5 text-center">{standings.classPoints[c.id]}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div>
-        <h2 className="text-xl font-bold border-b-2 border-black mb-3 pb-1 flex items-center gap-2">🏃 各項比賽得獎名單</h2>
-        <table className="w-full text-sm border-collapse border border-black">
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="border border-black p-2 text-left w-1/4 text-base">比賽項目</th>
-              <th className="border border-black p-2 w-1/4 text-base">七年級 前三名</th>
-              <th className="border border-black p-2 w-1/4 text-base">八年級 前三名</th>
-              <th className="border border-black p-2 w-1/4 text-base">九年級 前三名</th>
-            </tr>
-          </thead>
-          <tbody>
-            {config.events.map((event: any) => (
-              <tr key={event.id} className="break-inside-avoid">
-                <td className="border border-black p-2 font-bold align-top">
-                  {event.type === 'group' ? '👥 ' : '🏃 '}
-                  {getEventDisplayName(event)}
-                </td>
-                {[7, 8, 9].map(grade => {
-                  const top3 = getTop3(event.id, grade);
-                  return (
-                    <td key={grade} className="border border-black p-2 align-top">
-                      {top3.length > 0 ? (
-                        <div className="space-y-1">
-                          {top3.map((item: any, idx: number) => (
-                            <div key={idx} className="flex items-start gap-1">
-                              <span className="font-bold min-w-[1.2rem]">{idx + 1}.</span>
-                              <span>
-                                <span className="font-bold">{item.class}</span>
-                                {item.record.studentName && <span className="text-xs ml-1 text-gray-700">({item.record.studentName})</span>}
-                                <span className="ml-1 text-gray-700 whitespace-nowrap">- {item.record.score}{event.unit}</span>
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-gray-400 text-xs italic">尚無成績</div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
