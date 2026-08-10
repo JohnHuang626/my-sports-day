@@ -1186,6 +1186,26 @@ function PrintReport({ config, results }: any) {
     return all.sort((a, b) => event.sortBy === 'asc' ? a.val - b.val : b.val - a.val).slice(0, 3);
   };
 
+  const getSortedEventResults = (event: any, grade: number) => {
+    const eventResults = results[event.id] || {};
+    const gradeClasses = config.classes.filter((c: any) => c.grade === grade);
+    
+    let rows = gradeClasses.flatMap((c: any) => {
+      const entries = eventResults[c.id] || [];
+      if (entries.length === 0) return [{ class: c, score: '', student: '', val: null }];
+      return entries.map((e: any) => ({ class: c, score: e.score, student: e.studentName, val: parseScore(e.score) }));
+    });
+
+    rows.sort((a: any, b: any) => {
+      if (a.val === null && b.val === null) return a.class.id.localeCompare(b.class.id);
+      if (a.val === null) return 1;
+      if (b.val === null) return -1;
+      return event.sortBy === 'asc' ? a.val - b.val : b.val - a.val;
+    });
+
+    return rows;
+  };
+
   return (
     <div className="hidden print:block p-8 bg-white text-black">
       <h1 className="text-3xl font-bold text-center mb-6">嘉新國中運動會 成績總表</h1>
@@ -1216,7 +1236,7 @@ function PrintReport({ config, results }: any) {
         })}
       </div>
 
-      <h2 className="text-xl font-bold border-b-2 border-black pb-2 mb-4 break-before-page">🏃 各項比賽得獎名單</h2>
+      <h2 className="text-xl font-bold border-b-2 border-black pb-2 mb-4 break-before-page">🏃 各項比賽得獎名單 (前三名)</h2>
       <div className="grid grid-cols-2 gap-x-8 gap-y-4">
         {config.events.map((event: any) => (
           <div key={event.id} className="border p-3 rounded mb-2 break-inside-avoid">
@@ -1254,6 +1274,53 @@ function PrintReport({ config, results }: any) {
           </div>
         ))}
       </div>
+
+      {}
+      <h2 className="text-xl font-bold border-b-2 border-black pb-2 mb-4 break-before-page">📋 各項比賽詳細成績 (全表)</h2>
+      <div className="space-y-6">
+        {config.events.map((event: any) => (
+          <div key={event.id} className="break-inside-avoid border border-gray-400 p-4 rounded-lg">
+            <h3 className="font-bold text-lg mb-3 bg-gray-100 p-2 text-center shadow-sm">{getEventDisplayName(event)}</h3>
+            <div className="grid grid-cols-3 gap-6">
+              {[7, 8, 9].map(grade => {
+                const rows = getSortedEventResults(event, grade);
+                return (
+                  <div key={grade}>
+                    <h4 className="font-bold text-md text-center bg-gray-200 border border-b-0 border-gray-400 p-1">{grade} 年級</h4>
+                    <table className="w-full text-xs border-collapse border border-gray-400">
+                      <thead>
+                        <tr className="bg-gray-50">
+                          <th className="border border-gray-300 p-1 w-10">名次</th>
+                          <th className="border border-gray-300 p-1 w-12">班級</th>
+                          {event.type === 'individual' && <th className="border border-gray-300 p-1">姓名</th>}
+                          <th className="border border-gray-300 p-1">成績</th>
+                          <th className="border border-gray-300 p-1 w-10">積分</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row: any, idx: number) => {
+                          const hasScore = row.val !== null;
+                          const pts = hasScore && idx < (event.rankPoints || DEFAULT_POINTS).length ? (event.rankPoints || DEFAULT_POINTS)[idx] : 0;
+                          return (
+                            <tr key={`${row.class.id}-${idx}`}>
+                              <td className="border border-gray-300 p-1 text-center font-bold">{hasScore ? idx + 1 : '-'}</td>
+                              <td className="border border-gray-300 p-1 text-center font-bold text-sm">{row.class.name}</td>
+                              {event.type === 'individual' && <td className="border border-gray-300 p-1 text-center">{row.student || '-'}</td>}
+                              <td className="border border-gray-300 p-1 text-right font-mono pr-2">{row.score || '-'}</td>
+                              <td className="border border-gray-300 p-1 text-center">{hasScore ? pts : '-'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
     </div>
   );
 }
