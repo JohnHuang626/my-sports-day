@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
@@ -117,7 +117,6 @@ export default function App() {
   const [results, setResults] = useState<ResultsData>({});
   const [currentView, setCurrentView] = useState<'dashboard' | 'admin_input' | 'settings' | 'class_registration'>('dashboard');
   const [selectedGrade, setSelectedGrade] = useState<Grade | 'all'>(7);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   // 1. Auth Init
