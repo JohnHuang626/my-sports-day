@@ -89,7 +89,25 @@ const DEFAULT_EVENTS: SportEvent[] = [
   { id: 'evt_100m_f', name: '100m', type: 'individual', gender: 'F', unit: '秒', sortBy: 'asc', rankPoints: [7, 5, 4, 3, 2, 1], maxParticipants: 2 },
 ];
 
-// 提早定義全域工具函數，避免找不到
+// 智慧成績解析器
+const parseScore = (val: string | number | undefined | null) => {
+  if (!val) return null;
+  let str = String(val).trim();
+  let sec = 0;
+  if (str.includes(':')) {
+    const parts = str.split(':');
+    sec = parseInt(parts[0] || '0') * 60 + parseFloat(parts[1] || '0');
+  } else if (str.includes("'")) {
+    const parts = str.split("'");
+    const min = parseInt(parts[0] || '0');
+    let s = (parts[1] || '0').replace('"', '.');
+    sec = min * 60 + parseFloat(s);
+  } else {
+    sec = parseFloat(str);
+  }
+  return isNaN(sec) ? null : sec;
+};
+
 const getEventDisplayName = (event: SportEvent) => {
   const genderLabel = event.gender === 'Mixed' ? '混合' : event.gender === 'M' ? '男' : '女';
   if (event.name.includes(genderLabel)) return event.name;
@@ -290,7 +308,6 @@ export default function App() {
         {currentView === 'class_registration' && loggedInClass && <ClassRegistration config={config} results={results} isOffline={isOfflineMode} setResults={setResults} classId={loggedInClass} setPasswords={setPasswords} />}
       </main>
 
-      {/* 依當前視圖動態切換列印報表 */}
       {currentView === 'dashboard' && <PrintReport config={config} results={results} />}
       {currentView === 'settings' && <PrintRegistration config={config} results={results} />}
 
@@ -350,10 +367,11 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
   const [showPwModal, setShowPwModal] = useState(false);
   const [newPw, setNewPw] = useState('');
 
-  const individualEvents = config.events.filter((e: any) => e.type === 'individual');
-
+  // 【修復 Bug】: 拿掉 useEffect 裡面的 results, config.events 依賴，確保輸入時絕對不會重新渲染清空資料
   useEffect(() => {
     const initData: any = {};
+    const individualEvents = config.events.filter((e: any) => e.type === 'individual');
+    
     individualEvents.forEach((ev: any) => {
       const existingEntries = results[ev.id]?.[classId] || [];
       const entries = [];
@@ -363,7 +381,9 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
       initData[ev.id] = entries;
     });
     setLocalData(initData);
-  }, [config, results, classId]);
+    // 這裡我們明確只需要在 classId 變更時載入一次，不用監聽遠端結果更新
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classId]); 
 
   const handleChange = (eventId: string, idx: number, val: string) => {
     setLocalData((prev: any) => {
@@ -386,11 +406,11 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
         setResults(nextResults);
         setMsg('✅ 已暫存 (預覽模式)');
       } else {
-        const updates: any = {};
+        const payload: any = {};
         Object.keys(localData).forEach(eventId => {
-          updates[`${eventId}.${classId}`] = localData[eventId];
+          payload[eventId] = { [classId]: localData[eventId] };
         });
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), updates, { merge: true });
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), payload, { merge: true });
         setMsg('✅ 報名資料儲存成功！');
       }
     } catch (e) {
@@ -408,7 +428,7 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
       } else {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'passwords', 'main'), { [classId]: newPw }, { merge: true });
       }
-      alert('密碼修改成功！');
+      alert('密碼修改成功！下次請使用新密碼登入。');
       setShowPwModal(false);
       setNewPw('');
     } catch (e) {
@@ -421,7 +441,7 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
       <div className="bg-white rounded-xl shadow p-10 text-center max-w-2xl mx-auto mt-10">
         <div className="text-6xl mb-4">🔒</div>
         <h2 className="text-2xl font-bold text-slate-700 mb-2">線上報名已截止</h2>
-        <p className="text-slate-500">目前已停止開放各班修改名單。</p>
+        <p className="text-slate-500">目前已停止開放各班修改名單。<br/>若需調整，請聯繫體育組或大會人員。</p>
       </div>
     );
   }
@@ -431,12 +451,13 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
       <div className="flex justify-between items-center mb-6 border-b pb-4">
         <div>
           <h2 className="text-2xl font-bold flex items-center gap-2"><span className="text-blue-600">📝</span> {classId} 班 選手報名表</h2>
+          <p className="text-xs text-slate-500 mt-1">請填寫各項個人賽參賽選手姓名，完成後點擊最下方儲存。</p>
         </div>
         <button onClick={() => setShowPwModal(true)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded-lg font-bold transition flex items-center gap-1">🔒 修改密碼</button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        {individualEvents.map((ev: any) => (
+        {config.events.filter((e: any) => e.type === 'individual').map((ev: any) => (
           <div key={ev.id} className="border border-slate-200 rounded-lg overflow-hidden">
             <div className="bg-slate-50 px-3 py-2 border-b flex justify-between items-center">
               <span className="font-bold text-slate-700">{getEventDisplayName(ev)}</span>
@@ -446,7 +467,7 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
               {localData[ev.id]?.map((entry: any, idx: number) => (
                 <div key={idx} className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-400 w-5">{idx + 1}.</span>
-                  <input type="text" placeholder="請輸入姓名" className="flex-1 border p-2 rounded text-sm focus:ring-2 focus:ring-blue-400 outline-none" value={entry.studentName} onChange={e => handleChange(ev.id, idx, e.target.value)} />
+                  <input type="text" placeholder="請輸入姓名" className="flex-1 border p-2 rounded text-sm focus:ring-2 focus:ring-blue-400 outline-none" value={entry.studentName || ''} onChange={e => handleChange(ev.id, idx, e.target.value)} />
                 </div>
               ))}
             </div>
@@ -463,7 +484,8 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
             <h3 className="font-bold text-lg mb-2">修改 {classId} 班報名密碼</h3>
-            <input type="text" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="新密碼 (至少4碼)" className="w-full border p-3 rounded-lg mb-4" />
+            <p className="text-xs text-slate-500 mb-4">預設為 1234。修改後請務必記住新密碼。</p>
+            <input type="text" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="請輸入新密碼 (至少4碼)" className="w-full border p-3 rounded-lg mb-4" />
             <div className="flex gap-2">
               <button onClick={() => setShowPwModal(false)} className="flex-1 bg-slate-100 text-slate-600 py-2 rounded-lg font-bold">取消</button>
               <button onClick={handleUpdatePassword} className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold">確認修改</button>
@@ -488,7 +510,7 @@ function Dashboard({ config, results, selectedGrade, setSelectedGrade, isStaff }
         const gradeClasses = config.classes.filter((c: ClassInfo) => c.grade === g);
         let all = gradeClasses.flatMap((c: ClassInfo) => {
           const entries = eventResults[c.id] || [];
-          return entries.filter((e: any) => e.score).map((e: any) => ({ classId: c.id, val: parseFloat(e.score) }));
+          return entries.filter((e: any) => e.score && parseScore(e.score) !== null).map((e: any) => ({ classId: c.id, val: parseScore(e.score) }));
         });
         all.sort((a: any, b: any) => event.sortBy === 'asc' ? a.val - b.val : b.val - a.val);
         all.forEach((item: any, idx: number) => {
@@ -510,7 +532,7 @@ function Dashboard({ config, results, selectedGrade, setSelectedGrade, isStaff }
     let all: any[] = [];
     classes.forEach((c: ClassInfo) => {
       const entries = eventResults[c.id] || [];
-      entries.forEach((e: any) => { if (e.score) all.push({ class: c.name, record: e, val: parseFloat(e.score) }); });
+      entries.forEach((e: any) => { if (e.score && parseScore(e.score) !== null) all.push({ class: c.name, record: e, val: parseScore(e.score) }); });
     });
     return all.sort((a, b) => event.sortBy === 'asc' ? a.val - b.val : b.val - a.val).slice(0, 3);
   };
@@ -548,7 +570,7 @@ function Dashboard({ config, results, selectedGrade, setSelectedGrade, isStaff }
         </>
       )}
 
-      <div className="flex gap-2 overflow-x-auto pb-2">
+      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
         {([7, 8, 9] as const).map(g => (
           <button key={g} onClick={() => { setSelectedGrade(g); setSelectedEventId(null); }} className={`px-6 py-2 rounded-full font-bold whitespace-nowrap shadow-sm transition ${selectedGrade === g ? 'bg-blue-600 text-white ring-2 ring-blue-300' : 'bg-white text-slate-600 hover:bg-slate-100'}`}>{g} 年級</button>
         ))}
@@ -556,7 +578,7 @@ function Dashboard({ config, results, selectedGrade, setSelectedGrade, isStaff }
       </div>
 
       {selectedEventId ? (
-        <div className="bg-white rounded-xl shadow overflow-hidden">
+        <div className="bg-white rounded-xl shadow overflow-hidden animate-fade-in">
           <div className="bg-slate-100 p-4 border-b flex justify-between items-center sticky top-0 z-10">
             <button onClick={() => setSelectedEventId(null)} className="text-blue-600 font-bold hover:bg-blue-200 px-3 py-1 rounded transition">← 返回</button>
             <h2 className="font-bold text-lg">{getEventDisplayName(config.events.find((e: any) => e.id === selectedEventId))}</h2>
@@ -566,7 +588,7 @@ function Dashboard({ config, results, selectedGrade, setSelectedGrade, isStaff }
       ) : (
         <>
           <div className="bg-white rounded-xl shadow overflow-hidden border border-slate-100 mb-6">
-            <div className="bg-slate-50 p-3 font-bold text-slate-700">📊 總錦標積分榜</div>
+            <div className="bg-slate-50 p-3 font-bold text-slate-700 flex items-center gap-2">📊 總錦標積分榜</div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead><tr className="text-slate-400 border-b bg-slate-50/50"><th className="p-3 w-16 text-center">排名</th><th className="p-3">班級</th><th className="p-3 text-right">積分</th></tr></thead>
@@ -580,7 +602,7 @@ function Dashboard({ config, results, selectedGrade, setSelectedGrade, isStaff }
               </table>
             </div>
           </div>
-          <h3 className="font-bold text-slate-700 mb-3">🏃 各項比賽成績</h3>
+          <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2">🏃 各項比賽成績</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {config.events.map((event: any) => {
               if (selectedGrade === 'all') return null;
@@ -610,6 +632,7 @@ function Dashboard({ config, results, selectedGrade, setSelectedGrade, isStaff }
                 </div>
               );
             })}
+            {selectedGrade === 'all' && <div className="col-span-full text-center text-slate-400 py-10 italic">請選擇年級以查看各項比賽詳細成績</div>}
           </div>
         </>
       )}
@@ -624,14 +647,15 @@ function ResultTable({ eventId, config, results, gradeFilter }: any) {
   
   let rows = classes.flatMap((c: any) => {
     const entries = eventResults[c.id] || [];
-    if (entries.length === 0) return [{ class: c, score: '', student: '', val: event.sortBy === 'asc' ? Infinity : -Infinity }];
-    return entries.map((e: any) => ({ class: c, score: e.score, student: e.studentName, val: e.score ? parseFloat(e.score) : (event.sortBy === 'asc' ? Infinity : -Infinity) }));
+    if (entries.length === 0) return [{ class: c, score: '', student: '', val: null }];
+    return entries.map((e: any) => ({ class: c, score: e.score, student: e.studentName, val: parseScore(e.score) }));
   });
 
+  // 排序核心邏輯，自動判定是 asc (秒數小者贏) 或是 desc (距離大者贏)
   rows.sort((a: any, b: any) => {
-    if (!a.score && !b.score) return a.class.id.localeCompare(b.class.id);
-    if (!a.score) return 1;
-    if (!b.score) return -1;
+    if (a.val === null && b.val === null) return a.class.id.localeCompare(b.class.id);
+    if (a.val === null) return 1;
+    if (b.val === null) return -1;
     return event.sortBy === 'asc' ? a.val - b.val : b.val - a.val;
   });
 
@@ -639,7 +663,7 @@ function ResultTable({ eventId, config, results, gradeFilter }: any) {
     <table className="w-full text-left text-sm">
       <thead className="bg-slate-50 text-slate-500 font-bold"><tr><th className="p-4 w-16 text-center">排名</th><th className="p-4">班級</th>{event.type === 'individual' && <th className="p-4">姓名</th>}<th className="p-4 text-right">成績</th><th className="p-4 text-right">積分</th></tr></thead>
       <tbody className="divide-y">{rows.map((row: any, idx: number) => {
-        const hasScore = !!row.score;
+        const hasScore = row.val !== null;
         const pts = hasScore && idx < (event.rankPoints || DEFAULT_POINTS).length ? (event.rankPoints || DEFAULT_POINTS)[idx] : 0;
         return (
           <tr key={`${row.class.id}-${idx}`} className={hasScore && idx < 3 ? 'bg-yellow-50/30' : ''}>
@@ -695,13 +719,13 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
     setSaving(true);
     if (isOffline) {
         setResults((prev: any) => ({ ...prev, [selectedEventId]: localScores }));
-        setMsg('已暫存');
+        setMsg('已暫存 (預覽模式)');
     } else {
         try {
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), { [selectedEventId]: localScores }, { merge: true });
             setMsg('成績儲存成功！');
         } catch (e) { 
-            setMsg('儲存失敗'); 
+            setMsg('儲存失敗，請檢查網路'); 
         }
     }
     setSaving(false);
@@ -712,30 +736,34 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
 
   return (
     <div className="bg-white rounded-xl shadow p-6 max-w-2xl mx-auto">
-      <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><span className="text-blue-600">✏️</span> 成績登錄</h2>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold flex items-center gap-2"><span className="text-blue-600">✏️</span> 成績登錄</h2>
+      </div>
+      
       <div className="grid grid-cols-2 gap-4 mb-6">
         <div>
           <label className="block text-sm font-bold text-slate-500 mb-1">年級</label>
           <div className="flex bg-slate-100 p-1 rounded-lg">{[7, 8, 9].map(g => (
-            <button key={g} onClick={() => setSelectedGrade(g as Grade)} className={`flex-1 py-2 rounded-md font-bold text-sm transition ${selectedGrade === g ? 'bg-white shadow text-blue-600' : 'text-slate-400'}`}>{g} 年級</button>
+            <button key={g} onClick={() => setSelectedGrade(g as Grade)} className={`flex-1 py-2 rounded-md font-bold text-sm transition ${selectedGrade === g ? 'bg-white shadow text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>{g} 年級</button>
           ))}</div>
         </div>
         <div>
           <label className="block text-sm font-bold text-slate-500 mb-1">項目</label>
-          <select className="w-full border-2 p-2 rounded-lg font-bold" value={selectedEventId} onChange={e => setSelectedEventId(e.target.value)}>
+          <select className="w-full border-slate-200 border-2 p-2 rounded-lg font-bold text-slate-700" value={selectedEventId} onChange={e => setSelectedEventId(e.target.value)}>
             {config.events.map((e: any) => <option key={e.id} value={e.id}>{getEventDisplayName(e)}</option>)}
           </select>
         </div>
       </div>
 
       <div className="space-y-4 mb-8">
+        <div className="flex text-xs text-slate-400 font-bold px-2"><div className="w-16">班級</div>{selectedEvent?.type === 'individual' && <div className="w-24 mr-2">姓名 (報名)</div>}<div className="flex-1">輸入{selectedEvent?.unit}</div></div>
         {targets.map((c: any) => (
-          <div key={c.id} className="border p-2 rounded-lg bg-slate-50">
+          <div key={c.id} className="border border-slate-100 p-2 rounded-lg bg-slate-50/50">
             {localScores[c.id]?.map((entry: any, idx: number) => (
               <div key={idx} className="flex gap-2 mb-2 last:mb-0 items-center">
-                <div className="font-bold w-16 text-lg">{c.name}</div>
-                {selectedEvent?.type === 'individual' && <input type="text" className="border p-2 rounded w-24 text-sm bg-slate-100" value={entry.studentName} readOnly />}
-                <input type="number" step="0.01" placeholder="成績" className="border p-2 rounded flex-1 font-mono font-bold text-blue-600 text-lg" value={entry.score} onChange={e => handleChange(c.id, idx, 'score', e.target.value)} />
+                <div className="font-bold w-16 text-lg text-slate-700 flex items-center gap-1">{c.name} {selectedEvent?.maxParticipants > 1 && <span className="text-xs bg-white px-1 rounded border text-slate-400">#{idx+1}</span>}</div>
+                {selectedEvent?.type === 'individual' && <input type="text" placeholder="無名單" className="border p-2 rounded w-24 text-sm bg-slate-100" value={entry.studentName} readOnly title="請由各班報名系統填寫" />}
+                <input type="text" placeholder={selectedEvent?.type === 'group' ? '名次' : '成績 (如 1:23.45 或 5.6)'} className="border p-2 rounded flex-1 font-mono font-bold text-blue-600 text-lg" value={entry.score} onChange={e => handleChange(c.id, idx, 'score', e.target.value)} />
               </div>
             ))}
           </div>
@@ -743,8 +771,8 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
       </div>
 
       <div className="flex items-center gap-4">
-        <button onClick={handleSave} disabled={saving} className="flex-1 bg-green-600 text-white py-4 rounded-xl font-bold shadow-lg">{saving ? '儲存中...' : '💾 儲存變更'}</button>
-        {msg && <span className="font-bold text-sm text-slate-600">{msg}</span>}
+        <button onClick={handleSave} disabled={saving} className="flex-1 bg-green-600 text-white py-4 rounded-xl font-bold hover:bg-green-500 disabled:opacity-50 shadow-lg flex items-center justify-center gap-2">{saving ? '儲存中...' : <>💾 儲存變更</>}</button>
+        {msg && <span className="font-bold text-sm text-slate-600 animate-fade-in">{msg}</span>}
       </div>
     </div>
   );
@@ -752,42 +780,91 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
 
 function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
   const [localConfig, setLocalConfig] = useState(JSON.parse(JSON.stringify(config)));
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  
   const [newName, setNewName] = useState('');
+  const [newPoints, setNewPoints] = useState('7,5,4,3,2,1');
   const [newType, setNewType] = useState<EventType>('group');
   const [newGender, setNewGender] = useState<Gender>('Mixed');
   const [newMax, setNewMax] = useState(1);
+  const [newSortRule, setNewSortRule] = useState('名次_asc');
+  
   const [saving, setSaving] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [msg, setMsg] = useState('');
 
-  const handleAdd = () => {
+  const parsePoints = (str: string) => str.split(/[,，]/).map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+
+  const handleSaveEvent = () => {
     if (!newName) return alert('請輸入名稱');
-    setLocalConfig((prev: any) => ({
-      ...prev,
-      events: [...prev.events, {
-        id: `evt_${Date.now()}`,
-        name: newName,
-        type: newType,
-        gender: newGender,
-        unit: '名次',
-        sortBy: 'asc',
-        rankPoints: DEFAULT_POINTS,
-        maxParticipants: newType === 'individual' ? newMax : 1
-      }]
-    }));
+    
+    const parsedPoints = parsePoints(newPoints);
+    if (parsedPoints.length === 0) return alert('請輸入有效的積分格式 (例如: 7,5,4,3,2,1)');
+
+    const [unit, sortBy] = newSortRule.split('_');
+
+    setLocalConfig((prev: any) => {
+      if (editingEventId) {
+        return {
+          ...prev,
+          events: prev.events.map((e: any) => 
+            e.id === editingEventId 
+              ? { ...e, name: newName, type: newType, gender: newGender, rankPoints: parsedPoints, maxParticipants: newType === 'individual' ? newMax : 1, unit, sortBy }
+              : e
+          )
+        };
+      } else {
+        return {
+          ...prev,
+          events: [...prev.events, {
+            id: `evt_${Date.now()}`,
+            name: newName,
+            type: newType,
+            gender: newGender,
+            unit,
+            sortBy: sortBy as 'asc' | 'desc',
+            rankPoints: parsedPoints,
+            maxParticipants: newType === 'individual' ? newMax : 1
+          }]
+        };
+      }
+    });
+    
+    handleCancelEdit();
+  };
+
+  const handleEditEvent = (event: any) => {
+    setEditingEventId(event.id);
+    setNewName(event.name);
+    setNewType(event.type);
+    setNewGender(event.gender);
+    setNewMax(event.maxParticipants || 1);
+    setNewPoints(event.rankPoints ? event.rankPoints.join(', ') : '7,5,4,3,2,1');
+    setNewSortRule(`${event.unit || '名次'}_${event.sortBy || 'asc'}`);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingEventId(null);
     setNewName('');
+    setNewType('group');
+    setNewGender('Mixed');
     setNewMax(1);
+    setNewPoints('7,5,4,3,2,1');
+    setNewSortRule('名次_asc');
   };
 
   const removeEvent = (id: string) => {
-    setLocalConfig((prev: any) => ({ ...prev, events: prev.events.filter((e: any) => e.id !== id) }));
+    if(confirm('確定要刪除此項目嗎？這將會隱藏該項目的所有成績與報名資料！')) {
+        setLocalConfig((prev: any) => ({ ...prev, events: prev.events.filter((e: any) => e.id !== id) }));
+        if(editingEventId === id) handleCancelEdit();
+    }
   };
 
   const handleSave = async () => {
     setSaving(true);
     if (isOffline) {
         setConfig(localConfig);
-        setMsg('✅ 已暫存');
+        setMsg('✅ 已暫存設定 (預覽模式)');
     } else {
         try {
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main'), localConfig);
@@ -818,37 +895,12 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
     }
   };
 
-  // --- 新增：處理班級數量的更新 ---
-  const handleUpdateClassCount = (grade: Grade, count: number) => {
-    if (count < 1 || count > 20) return; // 限制合理範圍
-
-    setLocalConfig((prev: any) => {
-      // 保留其他年級的班級
-      const otherClasses = prev.classes.filter((c: any) => c.grade !== grade);
-      
-      // 產生新的該年級班級列表
-      const newClasses = Array.from({ length: count }, (_, i) => {
-        const classNum = i + 1;
-        const classIdStr = `${grade}${classNum.toString().padStart(2, '0')}`;
-        return {
-          id: classIdStr,
-          name: classIdStr,
-          grade: grade
-        };
-      });
-
-      return {
-        ...prev,
-        classes: [...otherClasses, ...newClasses].sort((a, b) => a.id.localeCompare(b.id)) // 保持排序
-      };
-    });
-  };
-
   return (
     <div className="space-y-6 pb-24 max-w-3xl mx-auto">
       <div className="bg-white p-6 rounded-xl shadow flex justify-between items-center">
         <div>
-          <h3 className="font-bold text-lg">📝 開放各班線上報名</h3>
+          <h3 className="font-bold text-lg flex items-center gap-2">📝 開放各班線上報名</h3>
+          <p className="text-sm text-slate-500">報名截止後請關閉，各班將無法再修改選手名單。</p>
         </div>
         <button onClick={() => setLocalConfig((p:any) => ({...p, registrationOpen: !p.registrationOpen}))} className={`w-14 h-8 rounded-full transition-colors relative ${localConfig.registrationOpen ? 'bg-green-500' : 'bg-slate-300'}`}>
            <div className={`absolute top-1 left-1 bg-white w-6 h-6 rounded-full transition-transform ${localConfig.registrationOpen ? 'translate-x-6' : ''}`}></div>
@@ -857,83 +909,115 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
       
       <div className="bg-white p-6 rounded-xl shadow flex justify-between items-center">
         <div>
-          <h3 className="font-bold text-lg">🖨️ 匯出全校報名名單</h3>
-          <p className="text-sm text-slate-500">列印各年級個人賽報名表</p>
+          <h3 className="font-bold text-lg flex items-center gap-2">🖨️ 匯出全校報名名單</h3>
+          <p className="text-sm text-slate-500">列印各年級「個人賽」報名表，方便張貼公告與檢錄。</p>
         </div>
-        <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold shadow">
+        <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold shadow hover:bg-slate-700">
           預覽與列印
         </button>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow">
-        <h3 className="font-bold text-lg mb-4">🏆 比賽項目管理</h3>
-        <div className="grid grid-cols-12 gap-2 mb-6 p-4 border border-dashed rounded-lg bg-slate-50 items-end">
+        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><span className="text-yellow-500">🏆</span> 比賽項目管理</h3>
+        
+        <div className={`grid grid-cols-12 gap-2 mb-6 p-4 border-2 border-dashed rounded-lg items-end transition-colors ${editingEventId ? 'bg-yellow-50 border-yellow-300' : 'bg-slate-50 border-slate-200'}`}>
+          {editingEventId && <div className="col-span-12 text-sm font-bold text-yellow-600 mb-2">✏️ 正在修改現有項目</div>}
+          
           <div className="col-span-12 md:col-span-3">
             <label className="text-xs font-bold text-slate-400 block mb-1">名稱</label>
-            <input type="text" className="w-full border p-2 rounded" value={newName} onChange={e => setNewName(e.target.value)} placeholder="項目名稱" />
+            <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" value={newName} onChange={e => setNewName(e.target.value)} placeholder="項目名稱" />
           </div>
           <div className="col-span-6 md:col-span-2">
             <label className="text-xs font-bold text-slate-400 block mb-1">類型</label>
             <select className="w-full border p-2 rounded" value={newType} onChange={e => {
               const t = e.target.value as EventType;
               setNewType(t);
+              setNewGender(t === 'group' ? 'Mixed' : 'M'); 
+            }}>
+              <option value="group">團體</option>
+              <option value="individual">個人</option>
+            </select>
+          </div>
+          <div className="col-span-6 md:col-span-2">
+            <label className="text-xs font-bold text-slate-400 block mb-1">性別</label>
+            <select className="w-full border p-2 rounded" value={newGender} onChange={e => setNewGender(e.target.value as Gender)}>
+              <option value="Mixed">混合</option>
+              <option value="M">男</option>
+              <option value="F">女</option>
+            </select>
+          </div>
+          <div className="col-span-12 md:col-span-5">
+            <label className="text-xs font-bold text-slate-400 block mb-1">計算與排名規則</label>
+            <select className="w-full border p-2 rounded" value={newSortRule} onChange={e => setNewSortRule(e.target.value)}>
+              <option value="名次_asc">名次 (數值越小，排名越前)</option>
+              <option value="秒_asc">時間/分秒 (數值越小，排名越前)</option>
+              <option value="公尺_desc">距離/公尺 (數值越大，排名越前)</option>
+              <option value="次_desc">次數/個 (數值越大，排名越前)</option>
+            </select>
+          </div>
+          
+          {newType === 'individual' && (
+            <div className="col-span-6 md:col-span-2">
+              <label className="text-xs font-bold text-slate-400 block mb-1">每班人數</label>
+              <input type="number" className="w-full border p-2 rounded" value={newMax} onChange={e => setNewMax(parseInt(e.target.value))} min="1" max="20" />
+            </div>
+          )}
+          <div className="col-span-12 md:col-span-4">
+            <label className="text-xs font-bold text-slate-400 block mb-1">名次積分 (依序逗號分隔)</label>
+            <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" value={newPoints} onChange={e => setNewPoints(e.target.value)} placeholder="如: 14,10,8,6,4,2" />
+          </div>
+          
+          <div className="col-span-12 flex items-end gap-2 mt-2">
+            {editingEventId ? (
+              <>
+                <button onClick={handleSaveEvent} className="flex-1 bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700 shadow flex items-center justify-center gap-1">💾 儲存修改</button>
+                <button onClick={handleCancelEdit} className="w-24 bg-slate-400 text-white py-2 rounded font-bold hover:bg-slate-500 shadow">取消</button>
+              </>
+            ) : (
+              <button onClick={handleSaveEvent} className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 shadow flex items-center justify-center gap-1">➕ 新增項目</button>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+          {localConfig.events.map((e: any) => (
+            <div key={e.id} className={`flex gap-2 items-center border p-2 rounded transition ${editingEventId === e.id ? 'bg-yellow-100 border-yellow-400' : 'bg-white hover:bg-slate-50'}`}>
+              <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${e.type === 'group' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>{e.type === 'group' ? '團體' : '個人'}</span>
+              
+              <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+                <span className="font-bold">{getEventDisplayName(e)}</span>
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  {e.type === 'individual' && <span className="border border-slate-200 px-1 rounded bg-slate-50">每班 {e.maxParticipants} 人</span>}
+                  <span className="border border-slate-200 px-1 rounded bg-slate-50" title="計分規則">{e.sortBy === 'asc' ? '小者前' : '大者前'}</span>
+                  <span className="border border-slate-200 px-1 rounded bg-slate-50" title="各名次對應積分">分: {e.rankPoints?.join(', ')}</span>
+                </div>
+              </div>
+              
+              <button onClick={() => handleEditEvent(e)} className="text-blue-500 px-2 py-1 hover:bg-blue-100 rounded bg-blue-50 transition" title="編輯項目">✏️</button>
               <button onClick={() => removeEvent(e.id)} className="text-red-500 px-2 py-1 hover:bg-red-100 rounded bg-red-50 transition" title="刪除項目">🗑️</button>
             </div>
           ))}
         </div>
       </div>
 
-      {/* --- 新增：班級設定區塊 --- */}
-      <div className="bg-white p-6 rounded-xl shadow">
-        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><span className="text-blue-500">🏫</span> 班級設定</h3>
-        <p className="text-sm text-slate-500 mb-4">調整各年級的參賽班級數量。減少班級數將會隱藏該班的歷史成績，請謹慎操作。</p>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[7, 8, 9].map((g) => {
-            const currentCount = localConfig.classes.filter((c: any) => c.grade === g).length;
-            return (
-              <div key={g} className="border border-slate-200 p-4 rounded-lg bg-slate-50 flex flex-col items-center justify-center">
-                <span className="font-bold text-slate-700 mb-2">{g} 年級</span>
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => handleUpdateClassCount(g as Grade, currentCount - 1)}
-                    className="w-8 h-8 flex items-center justify-center bg-slate-200 hover:bg-slate-300 rounded-full font-bold text-slate-600 transition"
-                  >
-                    -
-                  </button>
-                  <span className="text-xl font-bold w-8 text-center">{currentCount}</span>
-                  <button 
-                    onClick={() => handleUpdateClassCount(g as Grade, currentCount + 1)}
-                    className="w-8 h-8 flex items-center justify-center bg-slate-200 hover:bg-slate-300 rounded-full font-bold text-slate-600 transition"
-                  >
-                    +
-                  </button>
-                </div>
-                <span className="text-xs text-slate-400 mt-2">班</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
       <div className="bg-red-50 border border-red-200 p-6 rounded-xl shadow-sm">
         <h3 className="font-bold text-red-600 mb-2">⚠️ 危險操作區</h3>
-        <button onClick={handleClearAllResults} className={`w-full py-3 rounded-lg font-bold border-2 transition ${confirmClear ? 'bg-red-600 text-white' : 'text-red-500 border-red-200'}`}>
+        <p className="text-sm text-red-500 mb-4">這將會清空「所有」已經登錄的成績與各班報名名單，供下一次運動會重新開始使用。此操作無法復原。</p>
+        <button onClick={handleClearAllResults} className={`w-full py-3 rounded-lg font-bold border-2 transition ${confirmClear ? 'bg-red-600 text-white border-red-600 animate-pulse' : 'text-red-500 border-red-200 hover:bg-red-100'}`}>
           {confirmClear ? '⚠️ 確定要清空嗎？(再次點擊執行)' : '🗑️ 一鍵清空所有成績與報名資料'}
         </button>
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t flex justify-end z-10 print:hidden">
         <div className="max-w-5xl w-full mx-auto flex justify-end items-center gap-4">
-          {msg && <span className="font-bold text-slate-600">{msg}</span>}
-          <button onClick={handleSave} disabled={saving} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg">{saving ? '儲存中...' : '✅ 儲存所有設定'}</button>
+          {msg && <span className="font-bold text-slate-600 animate-fade-in">{msg}</span>}
+          <button onClick={handleSave} disabled={saving} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-green-500 shadow-lg">{saving ? '儲存中...' : '✅ 儲存所有設定'}</button>
         </div>
       </div>
     </div>
   );
 }
 
-// --- 成績總表列印 ---
 function PrintReport({ config, results }: any) {
   if (!config) return null;
 
@@ -946,7 +1030,7 @@ function PrintReport({ config, results }: any) {
       const gradeClasses = config.classes.filter((c: ClassInfo) => c.grade === g);
       let all = gradeClasses.flatMap((c: ClassInfo) => {
         const entries = eventResults[c.id] || [];
-        return entries.filter((e: any) => e.score).map((e: any) => ({ classId: c.id, val: parseFloat(e.score) }));
+        return entries.filter((e: any) => e.score && parseScore(e.score) !== null).map((e: any) => ({ classId: c.id, val: parseScore(e.score) }));
       });
       all.sort((a: any, b: any) => event.sortBy === 'asc' ? a.val - b.val : b.val - a.val);
       all.forEach((item: any, idx: number) => {
@@ -969,7 +1053,7 @@ function PrintReport({ config, results }: any) {
     let all: any[] = [];
     gradeClasses.forEach((c: any) => {
       const entries = eventResults[c.id] || [];
-      entries.forEach((e: any) => { if (e.score) all.push({ class: c.name, record: e, val: parseFloat(e.score) }); });
+      entries.forEach((e: any) => { if (e.score && parseScore(e.score) !== null) all.push({ class: c.name, record: e, val: parseScore(e.score) }); });
     });
     return all.sort((a, b) => event.sortBy === 'asc' ? a.val - b.val : b.val - a.val).slice(0, 3);
   };
@@ -986,7 +1070,9 @@ function PrintReport({ config, results }: any) {
             <div key={grade}>
               <h3 className="font-bold text-lg bg-gray-100 p-2 text-center border">{grade} 年級</h3>
               <table className="w-full border-collapse border border-gray-300 text-sm">
-                <thead><tr className="bg-gray-50"><th className="border p-1">名次</th><th className="border p-1">班級</th><th className="border p-1">積分</th></tr></thead>
+                <thead>
+                  <tr className="bg-gray-50"><th className="border p-1">名次</th><th className="border p-1">班級</th><th className="border p-1">積分</th></tr>
+                </thead>
                 <tbody>
                   {sorted.map((c: any, idx: number) => (
                     <tr key={c.id}>
@@ -1008,7 +1094,11 @@ function PrintReport({ config, results }: any) {
           <div key={event.id} className="border p-3 rounded mb-2 break-inside-avoid">
             <h3 className="font-bold text-md mb-2">{getEventDisplayName(event)}</h3>
             <table className="w-full text-xs border-collapse">
-              <thead><tr className="text-left border-b bg-gray-50"><th className="p-1">年級</th><th className="p-1">第一名</th><th className="p-1">第二名</th><th className="p-1">第三名</th></tr></thead>
+              <thead>
+                <tr className="text-left border-b bg-gray-50">
+                  <th className="p-1">年級</th><th className="p-1">第一名</th><th className="p-1">第二名</th><th className="p-1">第三名</th>
+                </tr>
+              </thead>
               <tbody className="divide-y">
                 {[7, 8, 9].map(grade => {
                   const top3 = getTop3ForPrint(event.id, grade);
@@ -1019,7 +1109,12 @@ function PrintReport({ config, results }: any) {
                         const item = top3[i];
                         return (
                           <td key={i} className="p-1">
-                            {item ? <div><span className="font-bold">{item.class}</span> {item.record.studentName && <span>({item.record.studentName})</span>}</div> : '-'}
+                            {item ? (
+                              <div>
+                                <span className="font-bold">{item.class}</span>
+                                {item.record.studentName && <span className="ml-1 text-gray-600">({item.record.studentName})</span>}
+                              </div>
+                            ) : '-'}
                           </td>
                         );
                       })}
@@ -1035,7 +1130,6 @@ function PrintReport({ config, results }: any) {
   );
 }
 
-// --- 報名表列印 (依年級分頁) ---
 function PrintRegistration({ config, results }: any) {
   if (!config) return null;
   const individualEvents = config.events.filter((e: any) => e.type === 'individual');
@@ -1055,7 +1149,7 @@ function PrintRegistration({ config, results }: any) {
                     <tbody>
                       {gradeClasses.map((c: any) => {
                         const entries = results[event.id]?.[c.id] || [];
-                        const names = entries.map((e: any) => e.studentName).filter(Boolean);
+                        const names = entries.map((e: any) => e.studentName).filter(Boolean); 
                         const nameString = names.length > 0 ? names.join('、') : '';
                         
                         return (
