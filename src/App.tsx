@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
@@ -305,7 +305,7 @@ export default function App() {
       <main className="max-w-5xl mx-auto p-4 print:hidden">
         {currentView === 'dashboard' && <Dashboard config={config} results={results} selectedGrade={selectedGrade} setSelectedGrade={setSelectedGrade} isStaff={isStaff} />}
         {currentView === 'admin_input' && isStaff && <AdminInput config={config} results={results} isOffline={isOfflineMode} setResults={setResults} appId={appId} db={db} />}
-        {currentView === 'settings' && isAdminMode && <AdminSettings config={config} results={results} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} appId={appId} db={db} />}
+        {currentView === 'settings' && isAdminMode && <AdminSettings config={config} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} appId={appId} db={db} />}
         {currentView === 'class_registration' && loggedInClass && <ClassRegistration config={config} results={results} isOffline={isOfflineMode} setResults={setResults} classId={loggedInClass} setPasswords={setPasswords} appId={appId} db={db} />}
       </main>
 
@@ -784,7 +784,7 @@ function AdminInput({ config, results, isOffline, setResults, appId, db }: any) 
   );
 }
 
-function AdminSettings({ config, results, isOffline, setConfig, setResults, appId, db }: any) {
+function AdminSettings({ config, isOffline, setConfig, setResults, appId, db }: any) {
   const [localConfig, setLocalConfig] = useState(JSON.parse(JSON.stringify(config)));
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   
