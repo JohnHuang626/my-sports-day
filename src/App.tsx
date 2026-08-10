@@ -1,9 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
-// --- 1. Firebase 設定與初始化 ---
 const localFirebaseConfig = {
   apiKey: 'AIzaSyA8N_mCRjfCtXB97OpIsiyVHds-bxOmUso',
   authDomain: 'jiashin-sports-day.firebaseapp.com',
@@ -36,9 +35,9 @@ try {
   console.error("Firebase Initialization Error:", error);
 }
 
-const appId = 'jiashin-sports-2024';
+// Global App ID for Firestore paths
+const appId = typeof (window as any).__app_id !== 'undefined' ? (window as any).__app_id : 'jiashin-sports-2024';
 
-// --- Types & Defaults ---
 type Grade = 7 | 8 | 9;
 
 interface ClassInfo {
@@ -142,6 +141,7 @@ export default function App() {
   const [selectedLoginClass, setSelectedLoginClass] = useState('701');
   const [loginError, setLoginError] = useState('');
 
+  // Fallback for offline mode
   useEffect(() => {
     if (isOfflineMode && !config) {
       setConfig({ classes: DEFAULT_CLASSES, events: DEFAULT_EVENTS, registrationOpen: true });
@@ -176,6 +176,7 @@ export default function App() {
     if (isOfflineMode) return;
     if (!user || !db || !isFirebaseReady) return;
 
+    // Strict paths enforced here
     const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main');
     const resultsRef = doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main');
     const passwordsRef = doc(db, 'artifacts', appId, 'public', 'data', 'passwords', 'main');
@@ -297,15 +298,15 @@ export default function App() {
 
       {isOfflineMode && (
         <div className="bg-orange-100 text-orange-800 px-4 py-2 text-center text-xs font-bold border-b border-orange-200 print:hidden">
-          ⚠️ 單機預覽模式 (預覽環境無法連線至資料庫，變更僅暫存)
+          ⚠️ 單機預覽模式 (無法連線至資料庫，變更僅暫存)
         </div>
       )}
 
       <main className="max-w-5xl mx-auto p-4 print:hidden">
         {currentView === 'dashboard' && <Dashboard config={config} results={results} selectedGrade={selectedGrade} setSelectedGrade={setSelectedGrade} isStaff={isStaff} />}
-        {currentView === 'admin_input' && isStaff && <AdminInput config={config} results={results} isOffline={isOfflineMode} setResults={setResults} />}
-        {currentView === 'settings' && isAdminMode && <AdminSettings config={config} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} />}
-        {currentView === 'class_registration' && loggedInClass && <ClassRegistration config={config} results={results} isOffline={isOfflineMode} setResults={setResults} classId={loggedInClass} setPasswords={setPasswords} />}
+        {currentView === 'admin_input' && isStaff && <AdminInput config={config} results={results} isOffline={isOfflineMode} setResults={setResults} appId={appId} db={db} />}
+        {currentView === 'settings' && isAdminMode && <AdminSettings config={config} results={results} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} appId={appId} db={db} />}
+        {currentView === 'class_registration' && loggedInClass && <ClassRegistration config={config} results={results} isOffline={isOfflineMode} setResults={setResults} classId={loggedInClass} setPasswords={setPasswords} appId={appId} db={db} />}
       </main>
 
       {currentView === 'dashboard' && <PrintReport config={config} results={results} />}
@@ -358,16 +359,16 @@ export default function App() {
   );
 }
 
-// --- 各班專屬報名表組件 ---
-function ClassRegistration({ config, results, isOffline, setResults, classId, setPasswords }: any) {
+function ClassRegistration({ config, results, isOffline, setResults, classId, setPasswords, appId, db }: any) {
   const [localData, setLocalData] = useState<any>({});
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   
   const [showPwModal, setShowPwModal] = useState(false);
   const [newPw, setNewPw] = useState('');
+  const [pwStatusMsg, setPwStatusMsg] = useState('');
 
-  // 【修復 Bug】: 拿掉 useEffect 裡面的 results, config.events 依賴，確保輸入時絕對不會重新渲染清空資料
+  // Ensures data is only populated once per classId change to prevent overwriting during input
   useEffect(() => {
     const initData: any = {};
     const individualEvents = config.events.filter((e: any) => e.type === 'individual');
@@ -381,7 +382,6 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
       initData[ev.id] = entries;
     });
     setLocalData(initData);
-    // 這裡我們明確只需要在 classId 變更時載入一次，不用監聽遠端結果更新
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classId]); 
 
@@ -421,18 +421,24 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
   };
 
   const handleUpdatePassword = async () => {
-    if (newPw.length < 4) return alert('密碼至少需要 4 碼');
+    if (newPw.length < 4) {
+      setPwStatusMsg('密碼至少需要 4 碼');
+      return;
+    }
     try {
       if (isOffline) {
         setPasswords((prev: any) => ({ ...prev, [classId]: newPw }));
       } else {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'passwords', 'main'), { [classId]: newPw }, { merge: true });
       }
-      alert('密碼修改成功！下次請使用新密碼登入。');
-      setShowPwModal(false);
-      setNewPw('');
+      setPwStatusMsg('修改成功！請記得新密碼。');
+      setTimeout(() => {
+        setShowPwModal(false);
+        setNewPw('');
+        setPwStatusMsg('');
+      }, 2000);
     } catch (e) {
-      alert('密碼修改失敗');
+      setPwStatusMsg('修改失敗，請稍後再試');
     }
   };
 
@@ -485,10 +491,11 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
           <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
             <h3 className="font-bold text-lg mb-2">修改 {classId} 班報名密碼</h3>
             <p className="text-xs text-slate-500 mb-4">預設為 1234。修改後請務必記住新密碼。</p>
+            {pwStatusMsg && <div className={`text-xs p-2 rounded mb-3 font-bold ${pwStatusMsg.includes('成功') ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>{pwStatusMsg}</div>}
             <input type="text" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="請輸入新密碼 (至少4碼)" className="w-full border p-3 rounded-lg mb-4" />
             <div className="flex gap-2">
-              <button onClick={() => setShowPwModal(false)} className="flex-1 bg-slate-100 text-slate-600 py-2 rounded-lg font-bold">取消</button>
-              <button onClick={handleUpdatePassword} className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold">確認修改</button>
+              <button onClick={() => { setShowPwModal(false); setPwStatusMsg(''); }} className="flex-1 bg-slate-100 text-slate-600 py-2 rounded-lg font-bold hover:bg-slate-200 transition">取消</button>
+              <button onClick={handleUpdatePassword} className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition">確認修改</button>
             </div>
           </div>
         </div>
@@ -497,7 +504,6 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
   );
 }
 
-// --- Dashboard ---
 function Dashboard({ config, results, selectedGrade, setSelectedGrade, isStaff }: any) {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
@@ -684,7 +690,7 @@ function ResultTable({ eventId, config, results, gradeFilter }: any) {
   );
 }
 
-function AdminInput({ config, results, isOffline, setResults }: any) {
+function AdminInput({ config, results, isOffline, setResults, appId, db }: any) {
   const [selectedEventId, setSelectedEventId] = useState(config.events[0]?.id);
   const [selectedGrade, setSelectedGrade] = useState<Grade>(7);
   const [localScores, setLocalScores] = useState<any>({});
@@ -778,7 +784,7 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
   );
 }
 
-function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
+function AdminSettings({ config, results, isOffline, setConfig, setResults, appId, db }: any) {
   const [localConfig, setLocalConfig] = useState(JSON.parse(JSON.stringify(config)));
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   
@@ -792,14 +798,57 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
   const [saving, setSaving] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [msg, setMsg] = useState('');
+  const [eventToDelete, setEventToDelete] = useState<string | null>(null);
 
   const parsePoints = (str: string) => str.split(/[,，]/).map(s => parseInt(s.trim())).filter(n => !isNaN(n));
 
+  const [newClassName, setNewClassName] = useState('');
+  const [newClassGrade, setNewClassGrade] = useState<Grade>(7);
+  const [classToDelete, setClassToDelete] = useState<string | null>(null);
+
+  const handleAddClass = () => {
+    if (!newClassName.trim()) {
+      setMsg('請輸入班級名稱');
+      setTimeout(() => setMsg(''), 2000);
+      return;
+    }
+    
+    // Check if class ID already exists to prevent duplicates
+    if (localConfig.classes.some((c: any) => c.id === newClassName.trim())) {
+      setMsg('班級名稱已存在');
+      setTimeout(() => setMsg(''), 2000);
+      return;
+    }
+
+    setLocalConfig((prev: any) => ({
+      ...prev,
+      classes: [...prev.classes, { id: newClassName.trim(), name: newClassName.trim(), grade: newClassGrade }].sort((a, b) => a.id.localeCompare(b.id))
+    }));
+    setNewClassName('');
+    setMsg('班級已加入 (尚未儲存)');
+    setTimeout(() => setMsg(''), 2000);
+  };
+
+  const confirmRemoveClass = (id: string) => {
+    setClassToDelete(id);
+  };
+
+  const executeRemoveClass = () => {
+    if (!classToDelete) return;
+    setLocalConfig((prev: any) => ({
+      ...prev,
+      classes: prev.classes.filter((c: any) => c.id !== classToDelete)
+    }));
+    setClassToDelete(null);
+    setMsg('班級已移除 (尚未儲存)');
+    setTimeout(() => setMsg(''), 2000);
+  };
+
   const handleSaveEvent = () => {
-    if (!newName) return alert('請輸入名稱');
+    if (!newName) { setMsg('請輸入名稱'); setTimeout(()=>setMsg(''), 2000); return; }
     
     const parsedPoints = parsePoints(newPoints);
-    if (parsedPoints.length === 0) return alert('請輸入有效的積分格式 (例如: 7,5,4,3,2,1)');
+    if (parsedPoints.length === 0) { setMsg('請輸入有效的積分格式'); setTimeout(()=>setMsg(''), 2000); return; }
 
     const [unit, sortBy] = newSortRule.split('_');
 
@@ -853,11 +902,15 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
     setNewSortRule('名次_asc');
   };
 
-  const removeEvent = (id: string) => {
-    if(confirm('確定要刪除此項目嗎？這將會隱藏該項目的所有成績與報名資料！')) {
-        setLocalConfig((prev: any) => ({ ...prev, events: prev.events.filter((e: any) => e.id !== id) }));
-        if(editingEventId === id) handleCancelEdit();
-    }
+  const confirmRemoveEvent = (id: string) => {
+    setEventToDelete(id);
+  };
+
+  const executeRemoveEvent = () => {
+    if (!eventToDelete) return;
+    setLocalConfig((prev: any) => ({ ...prev, events: prev.events.filter((e: any) => e.id !== eventToDelete) }));
+    if(editingEventId === eventToDelete) handleCancelEdit();
+    setEventToDelete(null);
   };
 
   const handleSave = async () => {
@@ -878,25 +931,27 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
   const handleClearAllResults = async () => {
     if (!confirmClear) {
       setConfirmClear(true);
-      setTimeout(() => setConfirmClear(false), 3000);
+      setTimeout(() => setConfirmClear(false), 4000);
       return;
     }
     try {
       if (isOffline) {
         setResults({});
-        alert('已清空 (預覽模式)');
+        setMsg('已清空 (預覽模式)');
       } else {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), {});
-        alert('成績已全部清空！');
+        setMsg('成績已全部清空！');
       }
       setConfirmClear(false);
+      setTimeout(() => setMsg(''), 3000);
     } catch (e) {
-      alert('清空失敗');
+      setMsg('清空失敗');
+      setTimeout(() => setMsg(''), 3000);
     }
   };
 
   return (
-    <div className="space-y-6 pb-24 max-w-3xl mx-auto">
+    <div className="space-y-6 pb-24 max-w-3xl mx-auto relative">
       <div className="bg-white p-6 rounded-xl shadow flex justify-between items-center">
         <div>
           <h3 className="font-bold text-lg flex items-center gap-2">📝 開放各班線上報名</h3>
@@ -915,6 +970,52 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
         <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold shadow hover:bg-slate-700">
           預覽與列印
         </button>
+      </div>
+
+      <div className="bg-white p-6 rounded-xl shadow">
+        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><span className="text-indigo-500">🏫</span> 班級管理</h3>
+        <p className="text-sm text-slate-500 mb-4">新增或移除各年級的班級。修改後請記得點擊右下角儲存。</p>
+        
+        <div className="flex flex-wrap items-end gap-2 mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
+          <div className="flex-1 min-w-[150px]">
+            <label className="text-xs font-bold text-slate-400 block mb-1">選擇年級</label>
+            <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" value={newClassGrade} onChange={e => setNewClassGrade(Number(e.target.value) as Grade)}>
+              <option value={7}>7 年級</option>
+              <option value={8}>8 年級</option>
+              <option value={9}>9 年級</option>
+            </select>
+          </div>
+          <div className="flex-1 min-w-[150px]">
+            <label className="text-xs font-bold text-slate-400 block mb-1">班級名稱 (如: 706)</label>
+            <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" value={newClassName} onChange={e => setNewClassName(e.target.value)} placeholder="輸入新班級" />
+          </div>
+          <button onClick={handleAddClass} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold hover:bg-indigo-700 shadow h-[42px] whitespace-nowrap">➕ 新增班級</button>
+        </div>
+
+        <div className="space-y-6">
+          {[7, 8, 9].map(grade => {
+            const gradeClasses = localConfig.classes.filter((c: any) => c.grade === grade);
+            return (
+              <div key={grade} className="border border-slate-100 rounded-lg overflow-hidden">
+                <div className="bg-slate-100 px-3 py-2 font-bold text-slate-700 border-b">
+                  {grade} 年級 <span className="text-xs text-slate-500 ml-2 font-normal">共 {gradeClasses.length} 班</span>
+                </div>
+                <div className="p-3 flex flex-wrap gap-2 bg-white">
+                  {gradeClasses.length > 0 ? (
+                    gradeClasses.map((c: any) => (
+                      <div key={c.id} className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                        <span className="font-bold text-slate-700">{c.name}</span>
+                        <button onClick={() => confirmRemoveClass(c.id)} className="text-slate-400 hover:text-red-500 ml-1 transition" title="移除班級">✖</button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-slate-400 text-sm italic w-full text-center py-2">目前無班級設定</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow">
@@ -994,7 +1095,7 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
               </div>
               
               <button onClick={() => handleEditEvent(e)} className="text-blue-500 px-2 py-1 hover:bg-blue-100 rounded bg-blue-50 transition" title="編輯項目">✏️</button>
-              <button onClick={() => removeEvent(e.id)} className="text-red-500 px-2 py-1 hover:bg-red-100 rounded bg-red-50 transition" title="刪除項目">🗑️</button>
+              <button onClick={() => confirmRemoveEvent(e.id)} className="text-red-500 px-2 py-1 hover:bg-red-100 rounded bg-red-50 transition" title="刪除項目">🗑️</button>
             </div>
           ))}
         </div>
@@ -1014,6 +1115,33 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
           <button onClick={handleSave} disabled={saving} className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-green-500 shadow-lg">{saving ? '儲存中...' : '✅ 儲存所有設定'}</button>
         </div>
       </div>
+
+      {eventToDelete && (
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
+            <h3 className="font-bold text-lg mb-2 text-red-600">確定刪除此項目嗎？</h3>
+            <p className="text-sm text-slate-600 mb-4">這將會隱藏該項目的所有成績與報名資料！</p>
+            <div className="flex gap-2">
+              <button onClick={() => setEventToDelete(null)} className="flex-1 bg-slate-100 text-slate-600 py-2 rounded-lg font-bold hover:bg-slate-200">取消</button>
+              <button onClick={executeRemoveEvent} className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold hover:bg-red-700">確定刪除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {}
+      {classToDelete && (
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
+            <h3 className="font-bold text-lg mb-2 text-red-600">確定刪除 {classToDelete} 班嗎？</h3>
+            <p className="text-sm text-slate-600 mb-4">刪除班級後，雖然該班先前登錄的成績資料不會從資料庫完全抹除，但將<span className="font-bold">不會</span>顯示在任何報表、看板或成績排名中。請確認是否要刪除？</p>
+            <div className="flex gap-2">
+              <button onClick={() => setClassToDelete(null)} className="flex-1 bg-slate-100 text-slate-600 py-2 rounded-lg font-bold hover:bg-slate-200">取消</button>
+              <button onClick={executeRemoveClass} className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold hover:bg-red-700">確定刪除</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
