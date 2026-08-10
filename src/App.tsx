@@ -973,52 +973,6 @@ function AdminSettings({ config, isOffline, setConfig, setResults, appId, db }: 
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow">
-        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><span className="text-indigo-500">🏫</span> 班級管理</h3>
-        <p className="text-sm text-slate-500 mb-4">新增或移除各年級的班級。修改後請記得點擊右下角儲存。</p>
-        
-        <div className="flex flex-wrap items-end gap-2 mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
-          <div className="flex-1 min-w-[150px]">
-            <label className="text-xs font-bold text-slate-400 block mb-1">選擇年級</label>
-            <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" value={newClassGrade} onChange={e => setNewClassGrade(Number(e.target.value) as Grade)}>
-              <option value={7}>7 年級</option>
-              <option value={8}>8 年級</option>
-              <option value={9}>9 年級</option>
-            </select>
-          </div>
-          <div className="flex-1 min-w-[150px]">
-            <label className="text-xs font-bold text-slate-400 block mb-1">班級名稱 (如: 706)</label>
-            <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" value={newClassName} onChange={e => setNewClassName(e.target.value)} placeholder="輸入新班級" />
-          </div>
-          <button onClick={handleAddClass} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold hover:bg-indigo-700 shadow h-[42px] whitespace-nowrap">➕ 新增班級</button>
-        </div>
-
-        <div className="space-y-6">
-          {[7, 8, 9].map(grade => {
-            const gradeClasses = localConfig.classes.filter((c: any) => c.grade === grade);
-            return (
-              <div key={grade} className="border border-slate-100 rounded-lg overflow-hidden">
-                <div className="bg-slate-100 px-3 py-2 font-bold text-slate-700 border-b">
-                  {grade} 年級 <span className="text-xs text-slate-500 ml-2 font-normal">共 {gradeClasses.length} 班</span>
-                </div>
-                <div className="p-3 flex flex-wrap gap-2 bg-white">
-                  {gradeClasses.length > 0 ? (
-                    gradeClasses.map((c: any) => (
-                      <div key={c.id} className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded px-2 py-1">
-                        <span className="font-bold text-slate-700">{c.name}</span>
-                        <button onClick={() => confirmRemoveClass(c.id)} className="text-slate-400 hover:text-red-500 ml-1 transition" title="移除班級">✖</button>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-slate-400 text-sm italic w-full text-center py-2">目前無班級設定</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="bg-white p-6 rounded-xl shadow">
         <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><span className="text-yellow-500">🏆</span> 比賽項目管理</h3>
         
         <div className={`grid grid-cols-12 gap-2 mb-6 p-4 border-2 border-dashed rounded-lg items-end transition-colors ${editingEventId ? 'bg-yellow-50 border-yellow-300' : 'bg-slate-50 border-slate-200'}`}>
@@ -1098,6 +1052,52 @@ function AdminSettings({ config, isOffline, setConfig, setResults, appId, db }: 
               <button onClick={() => confirmRemoveEvent(e.id)} className="text-red-500 px-2 py-1 hover:bg-red-100 rounded bg-red-50 transition" title="刪除項目">🗑️</button>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-xl shadow">
+        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><span className="text-indigo-500">🏫</span> 班級管理</h3>
+        <p className="text-sm text-slate-500 mb-4">新增或移除各年級的班級。修改後請記得點擊右下角儲存。</p>
+        
+        <div className="flex flex-wrap items-end gap-2 mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
+          <div className="flex-1 min-w-[150px]">
+            <label className="text-xs font-bold text-slate-400 block mb-1">選擇年級</label>
+            <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" value={newClassGrade} onChange={e => setNewClassGrade(Number(e.target.value) as Grade)}>
+              <option value={7}>7 年級</option>
+              <option value={8}>8 年級</option>
+              <option value={9}>9 年級</option>
+            </select>
+          </div>
+          <div className="flex-1 min-w-[150px]">
+            <label className="text-xs font-bold text-slate-400 block mb-1">班級名稱 (如: 706)</label>
+            <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" value={newClassName} onChange={e => setNewClassName(e.target.value)} placeholder="輸入新班級" />
+          </div>
+          <button onClick={handleAddClass} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold hover:bg-indigo-700 shadow h-[42px] whitespace-nowrap">➕ 新增班級</button>
+        </div>
+
+        <div className="space-y-6">
+          {[7, 8, 9].map(grade => {
+            const gradeClasses = localConfig.classes.filter((c: any) => c.grade === grade);
+            return (
+              <div key={grade} className="border border-slate-100 rounded-lg overflow-hidden">
+                <div className="bg-slate-100 px-3 py-2 font-bold text-slate-700 border-b">
+                  {grade} 年級 <span className="text-xs text-slate-500 ml-2 font-normal">共 {gradeClasses.length} 班</span>
+                </div>
+                <div className="p-3 flex flex-wrap gap-2 bg-white">
+                  {gradeClasses.length > 0 ? (
+                    gradeClasses.map((c: any) => (
+                      <div key={c.id} className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                        <span className="font-bold text-slate-700">{c.name}</span>
+                        <button onClick={() => confirmRemoveClass(c.id)} className="text-slate-400 hover:text-red-500 ml-1 transition" title="移除班級">✖</button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-slate-400 text-sm italic w-full text-center py-2">目前無班級設定</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
