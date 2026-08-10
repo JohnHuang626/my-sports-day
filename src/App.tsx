@@ -777,44 +777,88 @@ function AdminInput({ config, results, isOffline, setResults }: any) {
 
 function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
   const [localConfig, setLocalConfig] = useState(JSON.parse(JSON.stringify(config)));
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  
   const [newName, setNewName] = useState('');
   const [newPoints, setNewPoints] = useState('7,5,4,3,2,1');
   const [newType, setNewType] = useState<EventType>('group');
   const [newGender, setNewGender] = useState<Gender>('Mixed');
   const [newMax, setNewMax] = useState(1);
+  
   const [saving, setSaving] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [msg, setMsg] = useState('');
 
   const parsePoints = (str: string) => str.split(/[,，]/).map(s => parseInt(s.trim())).filter(n => !isNaN(n));
 
-  const handleAdd = () => {
+  const handleSaveEvent = () => {
     if (!newName) return alert('請輸入名稱');
-    setLocalConfig((prev: any) => ({
-      ...prev,
-      events: [...prev.events, {
-        id: `evt_${Date.now()}`,
-        name: newName,
-        type: newType,
-        gender: newGender,
-        unit: '名次',
-        sortBy: 'asc',
-        rankPoints: parsePoints(newPoints),
-        maxParticipants: newType === 'individual' ? newMax : 1
-      }]
-    }));
+    
+    const parsedPoints = parsePoints(newPoints);
+    if (parsedPoints.length === 0) return alert('請輸入有效的積分格式 (例如: 7,5,4,3,2,1)');
+
+    setLocalConfig((prev: any) => {
+      if (editingEventId) {
+        // 更新現有項目
+        return {
+          ...prev,
+          events: prev.events.map((e: any) => 
+            e.id === editingEventId 
+              ? { ...e, name: newName, type: newType, gender: newGender, rankPoints: parsedPoints, maxParticipants: newType === 'individual' ? newMax : 1 }
+              : e
+          )
+        };
+      } else {
+        // 新增項目
+        return {
+          ...prev,
+          events: [...prev.events, {
+            id: `evt_${Date.now()}`,
+            name: newName,
+            type: newType,
+            gender: newGender,
+            unit: newType === 'group' ? '名次' : '秒',
+            sortBy: 'asc',
+            rankPoints: parsedPoints,
+            maxParticipants: newType === 'individual' ? newMax : 1
+          }]
+        };
+      }
+    });
+    
+    handleCancelEdit();
+  };
+
+  const handleEditEvent = (event: any) => {
+    setEditingEventId(event.id);
+    setNewName(event.name);
+    setNewType(event.type);
+    setNewGender(event.gender);
+    setNewMax(event.maxParticipants || 1);
+    setNewPoints(event.rankPoints ? event.rankPoints.join(', ') : '7, 5, 4, 3, 2, 1');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingEventId(null);
     setNewName('');
+    setNewType('group');
+    setNewGender('Mixed');
+    setNewMax(1);
+    setNewPoints('7,5,4,3,2,1');
   };
 
   const removeEvent = (id: string) => {
-    setLocalConfig((prev: any) => ({ ...prev, events: prev.events.filter((e: any) => e.id !== id) }));
+    if(confirm('確定要刪除此項目嗎？這將會隱藏該項目的所有成績與報名資料！')) {
+        setLocalConfig((prev: any) => ({ ...prev, events: prev.events.filter((e: any) => e.id !== id) }));
+        if(editingEventId === id) handleCancelEdit();
+    }
   };
 
   const handleSave = async () => {
     setSaving(true);
     if (isOffline) {
         setConfig(localConfig);
-        setMsg('✅ 已暫存設定');
+        setMsg('✅ 已暫存設定 (預覽模式)');
     } else {
         try {
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main'), localConfig);
@@ -834,7 +878,7 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
     try {
       if (isOffline) {
         setResults({});
-        alert('已清空');
+        alert('已清空 (預覽模式)');
       } else {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), {});
         alert('成績已全部清空！');
@@ -869,10 +913,14 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
 
       <div className="bg-white p-6 rounded-xl shadow">
         <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><span className="text-yellow-500">🏆</span> 比賽項目管理</h3>
-        <div className="grid grid-cols-12 gap-2 mb-6 p-4 border border-dashed rounded-lg bg-slate-50 items-end">
+        
+        {/* 輸入表單區塊 */}
+        <div className={`grid grid-cols-12 gap-2 mb-6 p-4 border-2 border-dashed rounded-lg items-end transition-colors ${editingEventId ? 'bg-yellow-50 border-yellow-300' : 'bg-slate-50 border-slate-200'}`}>
+          {editingEventId && <div className="col-span-12 text-sm font-bold text-yellow-600 mb-2">✏️ 正在修改現有項目</div>}
+          
           <div className="col-span-12 md:col-span-3">
             <label className="text-xs font-bold text-slate-400 block mb-1">名稱</label>
-            <input type="text" className="w-full border p-2 rounded" value={newName} onChange={e => setNewName(e.target.value)} placeholder="項目名稱" />
+            <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" value={newName} onChange={e => setNewName(e.target.value)} placeholder="項目名稱" />
           </div>
           <div className="col-span-6 md:col-span-2">
             <label className="text-xs font-bold text-slate-400 block mb-1">類型</label>
@@ -896,24 +944,42 @@ function AdminSettings({ config, isOffline, setConfig, setResults }: any) {
           {newType === 'individual' && (
             <div className="col-span-6 md:col-span-2">
               <label className="text-xs font-bold text-slate-400 block mb-1">每班人數</label>
-              <input type="number" className="w-full border p-2 rounded" value={newMax} onChange={e => setNewMax(parseInt(e.target.value))} />
+              <input type="number" className="w-full border p-2 rounded" value={newMax} onChange={e => setNewMax(parseInt(e.target.value))} min="1" max="20" />
             </div>
           )}
           <div className="col-span-12 md:col-span-3">
-            <label className="text-xs font-bold text-slate-400 block mb-1">積分設定 (逗號分隔)</label>
-            <input type="text" className="w-full border p-2 rounded" value={newPoints} onChange={e => setNewPoints(e.target.value)} placeholder="7,5,4,3,2,1" />
+            <label className="text-xs font-bold text-slate-400 block mb-1">各名次積分 (逗號分隔)</label>
+            <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" value={newPoints} onChange={e => setNewPoints(e.target.value)} placeholder="如: 7,5,4,3,2,1" />
           </div>
-          <div className="col-span-12 flex items-end">
-            <button onClick={handleAdd} className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 flex items-center justify-center gap-1">➕ 新增</button>
+          
+          <div className="col-span-12 flex items-end gap-2 mt-2">
+            {editingEventId ? (
+              <>
+                <button onClick={handleSaveEvent} className="flex-1 bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700 shadow flex items-center justify-center gap-1">💾 儲存修改</button>
+                <button onClick={handleCancelEdit} className="w-24 bg-slate-400 text-white py-2 rounded font-bold hover:bg-slate-500 shadow">取消</button>
+              </>
+            ) : (
+              <button onClick={handleSaveEvent} className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 shadow flex items-center justify-center gap-1">➕ 新增項目</button>
+            )}
           </div>
         </div>
 
-        <div className="space-y-2 max-h-96 overflow-y-auto">
+        {/* 項目列表區塊 */}
+        <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
           {localConfig.events.map((e: any) => (
-            <div key={e.id} className="flex gap-2 items-center border p-2 rounded bg-white">
-              <span className={`text-xs px-2 py-1 rounded ${e.type === 'group' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>{e.type === 'group' ? '團體' : '個人'}</span>
-              <span className="font-bold flex-1">{getEventDisplayName(e)} {e.type === 'individual' && <span className="ml-2 text-xs font-normal text-slate-500 border border-slate-200 px-1 rounded bg-slate-50">每班 {e.maxParticipants} 人</span>}</span>
-              <button onClick={() => removeEvent(e.id)} className="text-red-500 px-2 hover:bg-red-50 rounded">🗑️</button>
+            <div key={e.id} className={`flex gap-2 items-center border p-2 rounded transition ${editingEventId === e.id ? 'bg-yellow-100 border-yellow-400' : 'bg-white hover:bg-slate-50'}`}>
+              <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${e.type === 'group' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>{e.type === 'group' ? '團體' : '個人'}</span>
+              
+              <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+                <span className="font-bold">{getEventDisplayName(e)}</span>
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  {e.type === 'individual' && <span className="border border-slate-200 px-1 rounded bg-slate-50">每班 {e.maxParticipants} 人</span>}
+                  <span className="border border-slate-200 px-1 rounded bg-slate-50" title="各名次對應積分">分: {e.rankPoints?.join(', ')}</span>
+                </div>
+              </div>
+              
+              <button onClick={() => handleEditEvent(e)} className="text-blue-500 px-2 py-1 hover:bg-blue-100 rounded bg-blue-50 transition" title="編輯項目">✏️</button>
+              <button onClick={() => removeEvent(e.id)} className="text-red-500 px-2 py-1 hover:bg-red-100 rounded bg-red-50 transition" title="刪除項目">🗑️</button>
             </div>
           ))}
         </div>
