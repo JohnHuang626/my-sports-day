@@ -67,10 +67,27 @@ interface StudentResult {
 
 type ResultsData = Record<string, Record<string, StudentResult[]>>;
 
+interface HeatAssignment {
+  lane: string;
+  classId: string;
+  studentIdx: number;
+  studentName?: string;
+}
+
+interface EventHeat {
+  id: string;
+  name: string;
+  assignments: HeatAssignment[];
+}
+
+// Record<eventId, Record<grade, EventHeat[]>>
+type HeatsData = Record<string, Record<number, EventHeat[]>>;
+
 interface AppConfig {
   classes: ClassInfo[];
   events: SportEvent[];
   registrationOpen: boolean;
+  heats?: HeatsData;
 }
 
 const DEFAULT_POINTS = [7, 5, 4, 3, 2, 1];
@@ -134,6 +151,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<'dashboard' | 'admin_input' | 'settings' | 'class_registration'>('dashboard');
   const [selectedGrade, setSelectedGrade] = useState<Grade | 'all'>(7);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const [printMode, setPrintMode] = useState<'results' | 'registration' | 'heats'>('results');
 
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginTab, setLoginTab] = useState<'class' | 'admin'>('class');
@@ -205,12 +223,12 @@ export default function App() {
     const unsubResults = onSnapshot(resultsRef, (docSnap) => {
       if (docSnap.exists()) setResults(docSnap.data() as ResultsData);
       else setDoc(resultsRef, {}).catch(console.warn);
-    });
+    }, (err) => console.warn("Results listener error:", err));
 
     const unsubPasswords = onSnapshot(passwordsRef, (docSnap) => {
       if (docSnap.exists()) setPasswords(docSnap.data() as Record<string, string>);
       else setDoc(passwordsRef, {}).catch(console.warn);
-    });
+    }, (err) => console.warn("Passwords listener error:", err));
 
     return () => { unsubConfig(); unsubResults(); unsubPasswords(); };
   }, [user, isOfflineMode]);
@@ -303,14 +321,15 @@ export default function App() {
       )}
 
       <main className="max-w-5xl mx-auto p-4 print:hidden">
-        {currentView === 'dashboard' && <Dashboard config={config} results={results} selectedGrade={selectedGrade} setSelectedGrade={setSelectedGrade} isStaff={isStaff} />}
+        {currentView === 'dashboard' && <Dashboard config={config} results={results} selectedGrade={selectedGrade} setSelectedGrade={setSelectedGrade} isStaff={isStaff} setPrintMode={setPrintMode} />}
         {currentView === 'admin_input' && isStaff && <AdminInput config={config} results={results} isOffline={isOfflineMode} setResults={setResults} appId={appId} db={db} />}
-        {currentView === 'settings' && isAdminMode && <AdminSettings config={config} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} appId={appId} db={db} />}
+        {currentView === 'settings' && isAdminMode && <AdminSettings config={config} results={results} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} appId={appId} db={db} setPrintMode={setPrintMode} />}
         {currentView === 'class_registration' && loggedInClass && <ClassRegistration config={config} results={results} isOffline={isOfflineMode} setResults={setResults} classId={loggedInClass} setPasswords={setPasswords} appId={appId} db={db} />}
       </main>
 
       {currentView === 'dashboard' && <PrintReport config={config} results={results} />}
-      {currentView === 'settings' && <PrintRegistration config={config} results={results} />}
+      {currentView === 'settings' && printMode === 'registration' && <PrintRegistration config={config} results={results} />}
+      {currentView === 'settings' && printMode === 'heats' && <PrintHeats config={config} results={results} />}
 
       {showLoginModal && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 print:hidden">
@@ -504,7 +523,7 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
   );
 }
 
-function Dashboard({ config, results, selectedGrade, setSelectedGrade, isStaff }: any) {
+function Dashboard({ config, results, selectedGrade, setSelectedGrade, isStaff, setPrintMode }: any) {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   const standings = useMemo(() => {
@@ -547,7 +566,7 @@ function Dashboard({ config, results, selectedGrade, setSelectedGrade, isStaff }
     <div className="space-y-6">
       {isStaff && !selectedEventId && (
         <div className="flex justify-end mb-4">
-          <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold shadow hover:bg-slate-700 flex items-center gap-2">
+          <button onClick={() => { setPrintMode?.('results'); setTimeout(() => window.print(), 100); }} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold shadow hover:bg-slate-700 flex items-center gap-2">
             🖨️ 列印全部成績總表
           </button>
         </div>
@@ -653,8 +672,8 @@ function ResultTable({ eventId, config, results, gradeFilter }: any) {
   
   let rows = classes.flatMap((c: any) => {
     const entries = eventResults[c.id] || [];
-    if (entries.length === 0) return [{ class: c, score: '', student: '', val: null }];
-    return entries.map((e: any) => ({ class: c, score: e.score, student: e.studentName, val: parseScore(e.score) }));
+    if (entries.length === 0) return [{ class: c, score: '', student: '', val: null, idx: 0 }];
+    return entries.map((e: any, idx: number) => ({ class: c, score: e.score, student: e.studentName, val: parseScore(e.score), idx }));
   });
 
   // 排序核心邏輯，自動判定是 asc (秒數小者贏) 或是 desc (距離大者贏)
@@ -665,14 +684,36 @@ function ResultTable({ eventId, config, results, gradeFilter }: any) {
     return event.sortBy === 'asc' ? a.val - b.val : b.val - a.val;
   });
 
+  // 輔助查找組別與道次
+  const getParticipantHeatInfo = (classId: string, grade: number, idx: number) => {
+    const eventHeats = config.heats?.[eventId]?.[grade] || [];
+    for (const h of eventHeats) {
+      const found = h.assignments.find((a: any) => a.classId === classId && (event.type === 'group' || a.studentIdx === idx));
+      if (found) {
+        return `${h.name}${found.lane ? ` (${found.lane})` : ''}`;
+      }
+    }
+    return null;
+  };
+
   return (
     <table className="w-full text-left text-sm">
-      <thead className="bg-slate-50 text-slate-500 font-bold"><tr><th className="p-4 w-16 text-center">排名</th><th className="p-4">班級</th>{event.type === 'individual' && <th className="p-4">姓名</th>}<th className="p-4 text-right">成績</th><th className="p-4 text-right">積分</th></tr></thead>
+      <thead className="bg-slate-50 text-slate-500 font-bold">
+        <tr>
+          <th className="p-4 w-16 text-center">排名</th>
+          <th className="p-4">班級</th>
+          {event.type === 'individual' && <th className="p-4">姓名</th>}
+          <th className="p-4">組別/道次</th>
+          <th className="p-4 text-right">成績</th>
+          <th className="p-4 text-right">積分</th>
+        </tr>
+      </thead>
       <tbody className="divide-y">{rows.map((row: any, idx: number) => {
         const hasScore = row.val !== null;
         const pts = hasScore && idx < (event.rankPoints || DEFAULT_POINTS).length ? (event.rankPoints || DEFAULT_POINTS)[idx] : 0;
+        const heatBadge = getParticipantHeatInfo(row.class.id, row.class.grade, row.idx);
         return (
-          <tr key={`${row.class.id}-${idx}`} className={hasScore && idx < 3 ? 'bg-yellow-50/30' : ''}>
+          <tr key={`${row.class.id}-${row.idx}-${idx}`} className={hasScore && idx < 3 ? 'bg-yellow-50/30' : ''}>
             <td className="p-4 text-center font-bold text-slate-400">
                 {hasScore && idx === 0 && '🥇'}
                 {hasScore && idx === 1 && '🥈'}
@@ -681,6 +722,7 @@ function ResultTable({ eventId, config, results, gradeFilter }: any) {
             </td>
             <td className="p-4 font-bold text-lg">{row.class.name}</td>
             {event.type === 'individual' && <td className="p-4 text-slate-600">{row.student || '-'}</td>}
+            <td className="p-4 text-xs text-slate-500">{heatBadge ? <span className="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded font-bold">{heatBadge}</span> : '-'}</td>
             <td className="p-4 text-right font-mono font-bold text-blue-600 text-lg">{row.score || '-'}</td>
             <td className="p-4 text-right font-mono text-slate-500">{hasScore ? `+${pts}` : '-'}</td>
           </tr>
@@ -784,8 +826,12 @@ function AdminInput({ config, results, isOffline, setResults, appId, db }: any) 
   );
 }
 
-function AdminSettings({ config, isOffline, setConfig, setResults, appId, db }: any) {
-  const [localConfig, setLocalConfig] = useState(JSON.parse(JSON.stringify(config)));
+function AdminSettings({ config, results, isOffline, setConfig, setResults, appId, db, setPrintMode }: any) {
+  const [localConfig, setLocalConfig] = useState(() => {
+    const copy = JSON.parse(JSON.stringify(config));
+    if (!copy.heats) copy.heats = {};
+    return copy;
+  });
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   
   const [newName, setNewName] = useState('');
@@ -800,11 +846,222 @@ function AdminSettings({ config, isOffline, setConfig, setResults, appId, db }: 
   const [msg, setMsg] = useState('');
   const [eventToDelete, setEventToDelete] = useState<string | null>(null);
 
+  // 分組與賽程編排專用狀態
+  const [heatEventId, setHeatEventId] = useState<string>(config.events[0]?.id || '');
+  const [heatGrade, setHeatGrade] = useState<Grade>(7);
+  const [autoAssignLanesCount, setAutoAssignLanesCount] = useState<number>(6);
+
   const parsePoints = (str: string) => str.split(/[,，]/).map(s => parseInt(s.trim())).filter(n => !isNaN(n));
 
   const [newClassName, setNewClassName] = useState('');
   const [newClassGrade, setNewClassGrade] = useState<Grade>(7);
   const [classToDelete, setClassToDelete] = useState<string | null>(null);
+
+  // 取得目前選擇項目與年級的分組列表
+  const selectedHeatEvent = localConfig.events.find((e: SportEvent) => e.id === heatEventId);
+  const currentGradeHeats: EventHeat[] = localConfig.heats?.[heatEventId]?.[heatGrade] || [];
+
+  const updateCurrentHeats = (newHeats: EventHeat[]) => {
+    setLocalConfig((prev: any) => ({
+      ...prev,
+      heats: {
+        ...(prev.heats || {}),
+        [heatEventId]: {
+          ...(prev.heats?.[heatEventId] || {}),
+          [heatGrade]: newHeats,
+        },
+      },
+    }));
+  };
+
+  // 取得該年級在該項目所有可排入的選手或班級名單
+  const availableParticipants = useMemo(() => {
+    if (!selectedHeatEvent) return [];
+    const gradeClasses = localConfig.classes.filter((c: ClassInfo) => c.grade === heatGrade);
+    const list: { key: string; classId: string; className: string; studentIdx: number; studentName: string; label: string }[] = [];
+
+    if (selectedHeatEvent.type === 'group') {
+      gradeClasses.forEach((c: ClassInfo) => {
+        list.push({
+          key: `${c.id}_0`,
+          classId: c.id,
+          className: c.name,
+          studentIdx: 0,
+          studentName: `${c.name} 班`,
+          label: `${c.name} 班`,
+        });
+      });
+    } else {
+      gradeClasses.forEach((c: ClassInfo) => {
+        const entries = results[heatEventId]?.[c.id] || [];
+        const max = selectedHeatEvent.maxParticipants || 1;
+        for (let i = 0; i < max; i++) {
+          const sName = entries[i]?.studentName?.trim() || '';
+          list.push({
+            key: `${c.id}_${i}`,
+            classId: c.id,
+            className: c.name,
+            studentIdx: i,
+            studentName: sName,
+            label: sName ? `${c.name} 班 - ${sName}` : `${c.name} 班 (#${i + 1} 未填姓名)`,
+          });
+        }
+      });
+    }
+    return list;
+  }, [selectedHeatEvent, localConfig.classes, heatGrade, results, heatEventId]);
+
+  const handleAddHeat = () => {
+    if (!selectedHeatEvent) return;
+    const nextIdx = currentGradeHeats.length + 1;
+    const isGroup = selectedHeatEvent.type === 'group';
+    const defaultName = isGroup ? `第 ${nextIdx} 場次 (第一輪)` : `第 ${nextIdx} 組`;
+    const defaultAssignments: HeatAssignment[] = isGroup
+      ? [
+          { lane: '甲方 (左/紅)', classId: '', studentIdx: 0 },
+          { lane: '乙方 (右/藍)', classId: '', studentIdx: 0 },
+        ]
+      : [
+          { lane: '第 1 道', classId: '', studentIdx: 0 },
+          { lane: '第 2 道', classId: '', studentIdx: 0 },
+          { lane: '第 3 道', classId: '', studentIdx: 0 },
+          { lane: '第 4 道', classId: '', studentIdx: 0 },
+        ];
+
+    updateCurrentHeats([
+      ...currentGradeHeats,
+      {
+        id: `heat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name: defaultName,
+        assignments: defaultAssignments,
+      },
+    ]);
+  };
+
+  const handleRemoveHeat = (heatId: string) => {
+    updateCurrentHeats(currentGradeHeats.filter((h) => h.id !== heatId));
+  };
+
+  const handleHeatNameChange = (heatId: string, newNameVal: string) => {
+    updateCurrentHeats(
+      currentGradeHeats.map((h) => (h.id === heatId ? { ...h, name: newNameVal } : h))
+    );
+  };
+
+  const handleAddAssignmentSlot = (heatId: string) => {
+    const isGroup = selectedHeatEvent?.type === 'group';
+    updateCurrentHeats(
+      currentGradeHeats.map((h) => {
+        if (h.id !== heatId) return h;
+        const nextNum = h.assignments.length + 1;
+        const defaultLane = isGroup ? `隊伍 ${nextNum}` : `第 ${nextNum} 道`;
+        return {
+          ...h,
+          assignments: [...h.assignments, { lane: defaultLane, classId: '', studentIdx: 0 }],
+        };
+      })
+    );
+  };
+
+  const handleRemoveAssignmentSlot = (heatId: string, slotIdx: number) => {
+    updateCurrentHeats(
+      currentGradeHeats.map((h) => {
+        if (h.id !== heatId) return h;
+        return {
+          ...h,
+          assignments: h.assignments.filter((_, idx) => idx !== slotIdx),
+        };
+      })
+    );
+  };
+
+  const handleAssignmentChange = (heatId: string, slotIdx: number, field: 'lane' | 'participantKey', val: string) => {
+    updateCurrentHeats(
+      currentGradeHeats.map((h) => {
+        if (h.id !== heatId) return h;
+        const nextAssign = [...h.assignments];
+        if (field === 'lane') {
+          nextAssign[slotIdx] = { ...nextAssign[slotIdx], lane: val };
+        } else {
+          if (!val) {
+            nextAssign[slotIdx] = { ...nextAssign[slotIdx], classId: '', studentIdx: 0, studentName: '' };
+          } else {
+            const [cId, sIdxStr] = val.split('_');
+            const sIdx = parseInt(sIdxStr || '0', 10);
+            const foundP = availableParticipants.find((p) => p.key === val);
+            nextAssign[slotIdx] = {
+              ...nextAssign[slotIdx],
+              classId: cId,
+              studentIdx: sIdx,
+              studentName: foundP?.studentName || '',
+            };
+          }
+        }
+        return { ...h, assignments: nextAssign };
+      })
+    );
+  };
+
+  const handleAutoGenerateHeats = () => {
+    if (!selectedHeatEvent) return;
+    const isGroup = selectedHeatEvent.type === 'group';
+
+    // 篩選出有效名單 (個人賽優先挑有填寫名字的選手，若都沒填則用全部名額)
+    let pool = [...availableParticipants];
+    if (!isGroup) {
+      const namedPool = pool.filter((p) => p.studentName !== '');
+      if (namedPool.length > 0) {
+        pool = namedPool;
+      }
+    }
+
+    if (pool.length === 0) {
+      setMsg('⚠️ 目前該年級無可編排的班級或選手');
+      setTimeout(() => setMsg(''), 2500);
+      return;
+    }
+
+    // 隨機洗牌
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+
+    const perHeat = isGroup ? 2 : Math.max(1, autoAssignLanesCount || 6);
+    const newHeats: EventHeat[] = [];
+    let heatCounter = 1;
+
+    for (let i = 0; i < pool.length; i += perHeat) {
+      const chunk = pool.slice(i, i + perHeat);
+      const assignments: HeatAssignment[] = chunk.map((p, idx) => ({
+        lane: isGroup ? (idx === 0 ? '甲方 (左/紅)' : idx === 1 ? '乙方 (右/藍)' : `隊伍 ${idx + 1}`) : `第 ${idx + 1} 道`,
+        classId: p.classId,
+        studentIdx: p.studentIdx,
+        studentName: p.studentName,
+      }));
+
+      // 若是團體對戰且遇到單數輪空，補上一個輪空位置方便檢視
+      if (isGroup && assignments.length === 1) {
+        assignments.push({
+          lane: '乙方 (輪空/種子)',
+          classId: '',
+          studentIdx: 0,
+          studentName: '輪空',
+        });
+      }
+
+      newHeats.push({
+        id: `heat_${Date.now()}_${heatCounter}`,
+        name: isGroup ? `第 ${heatCounter} 場次 (第一輪)` : `第 ${heatCounter} 組`,
+        assignments,
+      });
+      heatCounter++;
+    }
+
+    updateCurrentHeats(newHeats);
+    setMsg('🎲 已自動隨機完成分組編排！(請記得點擊最下方儲存設定)');
+    setTimeout(() => setMsg(''), 3500);
+  };
 
   const handleAddClass = () => {
     if (!newClassName.trim()) {
@@ -950,6 +1207,17 @@ function AdminSettings({ config, isOffline, setConfig, setResults, appId, db }: 
     }
   };
 
+  // 統計某選手/班級是否已被排入當前項目分組中
+  const assignedKeysSet = useMemo(() => {
+    const s = new Set<string>();
+    currentGradeHeats.forEach((h) => {
+      h.assignments.forEach((a) => {
+        if (a.classId) s.add(`${a.classId}_${a.studentIdx}`);
+      });
+    });
+    return s;
+  }, [currentGradeHeats]);
+
   return (
     <div className="space-y-6 pb-24 max-w-3xl mx-auto relative">
       <div className="bg-white p-6 rounded-xl shadow flex justify-between items-center">
@@ -962,14 +1230,232 @@ function AdminSettings({ config, isOffline, setConfig, setResults, appId, db }: 
         </button>
       </div>
       
-      <div className="bg-white p-6 rounded-xl shadow flex justify-between items-center">
-        <div>
-          <h3 className="font-bold text-lg flex items-center gap-2">🖨️ 匯出全校報名名單</h3>
-          <p className="text-sm text-slate-500">列印各年級「個人賽」報名表，方便張貼公告與檢錄。</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white p-5 rounded-xl shadow flex flex-col justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-lg flex items-center gap-2">🖨️ 匯出各班報名總表</h3>
+            <p className="text-xs text-slate-500 mt-1">依班級列出「個人賽」所有報名選手名單，方便各班核對。</p>
+          </div>
+          <button onClick={() => { setPrintMode('registration'); setTimeout(() => window.print(), 100); }} className="bg-slate-800 text-white px-4 py-2.5 rounded-lg font-bold shadow hover:bg-slate-700 text-sm w-full">
+            預覽與列印報名表
+          </button>
         </div>
-        <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold shadow hover:bg-slate-700">
-          預覽與列印
-        </button>
+
+        <div className="bg-white p-5 rounded-xl shadow flex flex-col justify-between gap-3 border-2 border-blue-100">
+          <div>
+            <h3 className="font-bold text-lg flex items-center gap-2 text-blue-700">📋 匯出分組賽程與檢錄單</h3>
+            <p className="text-xs text-slate-500 mt-1">列印已排定的各項目「組別、跑道、拔河對戰表」，供現場檢錄與張貼公告。</p>
+          </div>
+          <button onClick={() => {
+            // 列印前同步確保預覽能讀取到最新編輯的 localConfig
+            setConfig(localConfig);
+            setPrintMode('heats');
+            setTimeout(() => window.print(), 150);
+          }} className="bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold shadow hover:bg-blue-700 text-sm w-full">
+            預覽與列印賽程公告單
+          </button>
+        </div>
+      </div>
+
+      {}
+      <div className="bg-white p-6 rounded-xl shadow border-t-4 border-blue-600">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-4 border-b pb-3">
+          <div>
+            <h3 className="font-bold text-lg flex items-center gap-2">
+              <span className="text-blue-600">🏁</span> 賽程分組與道次/對戰編排
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              可針對個人賽設定「第幾組、第幾跑道」，或針對拔河等團體賽安排「第一輪對戰班級」。編排後請記得點擊最下方「儲存所有設定」。
+            </p>
+          </div>
+        </div>
+
+        {/* 選擇要編排的項目與年級 */}
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 mb-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+          <div className="sm:col-span-5">
+            <label className="text-xs font-bold text-slate-500 block mb-1">1. 選擇比賽項目</label>
+            <select
+              className="w-full border border-slate-300 p-2 rounded-lg font-bold text-slate-700 bg-white"
+              value={heatEventId}
+              onChange={(e) => setHeatEventId(e.target.value)}
+            >
+              {localConfig.events.map((ev: SportEvent) => (
+                <option key={ev.id} value={ev.id}>
+                  [{ev.type === 'group' ? '團體' : '個人'}] {getEventDisplayName(ev)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="sm:col-span-4">
+            <label className="text-xs font-bold text-slate-500 block mb-1">2. 選擇年級</label>
+            <div className="flex bg-slate-200 p-1 rounded-lg">
+              {([7, 8, 9] as const).map((g) => {
+                const count = (localConfig.heats?.[heatEventId]?.[g] || []).length;
+                return (
+                  <button
+                    key={g}
+                    onClick={() => setHeatGrade(g)}
+                    className={`flex-1 py-1.5 rounded-md font-bold text-xs transition flex items-center justify-center gap-1 ${
+                      heatGrade === g ? 'bg-white shadow text-blue-600' : 'text-slate-600 hover:text-slate-800'
+                    }`}
+                  >
+                    <span>{g}年級</span>
+                    {count > 0 && <span className="bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded-full text-[10px]">{count}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="sm:col-span-3 flex flex-col justify-end">
+            <button
+              onClick={handleAddHeat}
+              className="w-full bg-blue-600 text-white py-2 px-3 rounded-lg font-bold hover:bg-blue-700 shadow text-sm flex items-center justify-center gap-1"
+            >
+              ➕ 新增{selectedHeatEvent?.type === 'group' ? '對戰場次' : '分組'}
+            </button>
+          </div>
+        </div>
+
+        {/* 快速自動隨機編排工具列 */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4 px-3 py-2 bg-indigo-50/70 border border-indigo-100 rounded-lg text-xs">
+          <div className="flex items-center gap-2 text-indigo-800 font-bold">
+            <span>🎲 快速抽籤編排：</span>
+            {selectedHeatEvent?.type === 'individual' ? (
+              <div className="flex items-center gap-1 font-normal">
+                <span>每組最多</span>
+                <input
+                  type="number"
+                  min={2}
+                  max={12}
+                  value={autoAssignLanesCount}
+                  onChange={(e) => setAutoAssignLanesCount(parseInt(e.target.value) || 6)}
+                  className="w-12 border border-indigo-200 rounded px-1.5 py-0.5 text-center font-bold bg-white"
+                />
+                <span>個跑道/人</span>
+              </div>
+            ) : (
+              <span className="font-normal text-indigo-600">將 {heatGrade} 年級各班兩兩隨機配對產生第一輪對戰表</span>
+            )}
+          </div>
+          <button
+            onClick={handleAutoGenerateHeats}
+            className="bg-indigo-600 text-white px-3 py-1.5 rounded font-bold hover:bg-indigo-700 transition shadow-sm"
+          >
+            ⚡ 依報名名單隨機分組/抽道次
+          </button>
+        </div>
+
+        {/* 顯示尚未被分配的選手或班級提示 */}
+        <div className="mb-4 px-3 py-2 bg-slate-50 rounded-lg border border-slate-200 text-xs">
+          <div className="font-bold text-slate-600 mb-1">
+            📌 {heatGrade} 年級可編排{selectedHeatEvent?.type === 'group' ? '班級' : '報名選手'}狀態（已排入 {assignedKeysSet.size} / 共 {availableParticipants.length}）：
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {availableParticipants.map((p) => {
+              const isAssigned = assignedKeysSet.has(p.key);
+              const hasName = p.studentName !== '';
+              return (
+                <span
+                  key={p.key}
+                  className={`px-2 py-0.5 rounded border ${
+                    isAssigned
+                      ? 'bg-green-50 border-green-300 text-green-700 font-bold'
+                      : hasName
+                      ? 'bg-amber-50 border-amber-300 text-amber-800 font-bold'
+                      : 'bg-white border-slate-200 text-slate-400'
+                  }`}
+                >
+                  {isAssigned ? '✓ ' : ''}{p.label}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 各組別 / 場次編輯卡片 */}
+        {currentGradeHeats.length === 0 ? (
+          <div className="text-center py-10 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-sm">
+            目前 {heatGrade} 年級「{selectedHeatEvent ? getEventDisplayName(selectedHeatEvent) : ''}」尚未建立任何分組或賽程。<br />
+            請點擊上方「➕ 新增{selectedHeatEvent?.type === 'group' ? '對戰場次' : '分組'}」或「⚡ 隨機分組」開始編排。
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {currentGradeHeats.map((heat) => (
+              <div key={heat.id} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm flex flex-col">
+                <div className="bg-slate-100 px-3 py-2 border-b flex justify-between items-center gap-2">
+                  <input
+                    type="text"
+                    value={heat.name}
+                    onChange={(e) => handleHeatNameChange(heat.id, e.target.value)}
+                    className="font-bold text-slate-800 bg-white border border-slate-300 rounded px-2 py-1 text-sm flex-1 focus:ring-2 focus:ring-blue-400 outline-none"
+                    placeholder="輸入組別或場次名稱 (如: 第一組、第一輪A場)"
+                  />
+                  <button
+                    onClick={() => handleRemoveHeat(heat.id)}
+                    className="text-red-500 hover:bg-red-100 px-2 py-1 rounded text-xs font-bold transition"
+                    title="刪除此組別/場次"
+                  >
+                    🗑️ 刪除
+                  </button>
+                </div>
+
+                <div className="p-3 space-y-2 flex-1">
+                  <div className="flex text-[11px] font-bold text-slate-400 px-1">
+                    <div className="w-28">{selectedHeatEvent?.type === 'group' ? '對戰方/位置' : '道次/順序'}</div>
+                    <div className="flex-1">{selectedHeatEvent?.type === 'group' ? '參賽班級' : '參賽選手 (班級 - 姓名)'}</div>
+                    <div className="w-6"></div>
+                  </div>
+
+                  {heat.assignments.map((assign, sIdx) => {
+                    const selectedKey = assign.classId ? `${assign.classId}_${assign.studentIdx}` : '';
+                    return (
+                      <div key={sIdx} className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={assign.lane}
+                          onChange={(e) => handleAssignmentChange(heat.id, sIdx, 'lane', e.target.value)}
+                          placeholder={selectedHeatEvent?.type === 'group' ? '甲方/乙方' : '第1道'}
+                          className="w-28 border border-slate-200 rounded p-1.5 text-xs font-bold text-blue-700 bg-blue-50/40 focus:bg-white outline-none"
+                        />
+                        <select
+                          value={selectedKey}
+                          onChange={(e) => handleAssignmentChange(heat.id, sIdx, 'participantKey', e.target.value)}
+                          className="flex-1 border border-slate-200 rounded p-1.5 text-xs font-bold text-slate-700 bg-white focus:ring-2 focus:ring-blue-400 outline-none"
+                        >
+                          <option value="">-- 請選擇{selectedHeatEvent?.type === 'group' ? '班級 (或輪空)' : '參賽選手'} --</option>
+                          {availableParticipants.map((p) => {
+                            const isUsedElsewhere = assignedKeysSet.has(p.key) && p.key !== selectedKey;
+                            return (
+                              <option key={p.key} value={p.key}>
+                                {p.label} {isUsedElsewhere ? '(已排入他組)' : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <button
+                          onClick={() => handleRemoveAssignmentSlot(heat.id, sIdx)}
+                          className="text-slate-300 hover:text-red-500 w-6 text-center font-bold"
+                          title="移除此道次/位置"
+                        >
+                          ✖
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  <button
+                    onClick={() => handleAddAssignmentSlot(heat.id)}
+                    className="w-full mt-2 py-1.5 border border-dashed border-slate-300 rounded-lg text-xs font-bold text-slate-500 hover:bg-slate-50 hover:text-blue-600 transition"
+                  >
+                    + 新增{selectedHeatEvent?.type === 'group' ? '對戰隊伍位置' : '跑道 / 參賽位'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow">
@@ -1129,7 +1615,6 @@ function AdminSettings({ config, isOffline, setConfig, setResults, appId, db }: 
         </div>
       )}
 
-      {}
       {classToDelete && (
         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
@@ -1275,7 +1760,6 @@ function PrintReport({ config, results }: any) {
         ))}
       </div>
 
-      {}
       <h2 className="text-xl font-bold border-b-2 border-black pb-2 mb-4 break-before-page">📋 各項比賽詳細成績 (全表)</h2>
       <div className="space-y-6">
         {config.events.map((event: any) => (
@@ -1362,6 +1846,155 @@ function PrintRegistration({ config, results }: any) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function PrintHeats({ config, results }: any) {
+  if (!config) return null;
+  const heatsData: HeatsData = config.heats || {};
+
+  // 檢查是否有任何已編排的分組資料
+  const hasAnyHeats = config.events.some((ev: SportEvent) =>
+    [7, 8, 9].some((g) => (heatsData[ev.id]?.[g] || []).length > 0)
+  );
+
+  return (
+    <div className="hidden print:block bg-white text-black p-8">
+      <div className="text-center mb-6 border-b-2 border-black pb-4">
+        <h1 className="text-3xl font-extrabold tracking-wider">嘉新國中運動會 - 各項比賽分組賽程與檢錄表</h1>
+        <p className="text-sm text-gray-600 mt-1">請各班參賽選手依組別與道次/場次提早至檢錄處集合檢錄</p>
+      </div>
+
+      {!hasAnyHeats ? (
+        <div className="text-center py-20 text-gray-500 text-lg border-2 border-dashed border-gray-300 rounded-xl">
+          目前尚未編排任何分組賽程資料。請先由管理員後台「賽程分組與道次/對戰編排」進行設定。
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {config.events.map((event: SportEvent) => {
+            const eventHeatsByGrade = heatsData[event.id] || {};
+            const gradesWithHeats = ([7, 8, 9] as const).filter(
+              (g) => (eventHeatsByGrade[g] || []).length > 0
+            );
+
+            if (gradesWithHeats.length === 0) return null;
+
+            return (
+              <div key={event.id} className="break-inside-avoid border-2 border-black rounded-lg overflow-hidden mb-6">
+                <div className="bg-gray-200 px-4 py-2 border-b-2 border-black flex justify-between items-center">
+                  <h2 className="text-xl font-bold">
+                    {event.type === 'group' ? '👥 團體賽' : '🏃 個人賽'} — {getEventDisplayName(event)}
+                  </h2>
+                  <span className="text-xs font-bold bg-white px-2 py-1 rounded border border-gray-400">
+                    成績單位：{event.unit}
+                  </span>
+                </div>
+
+                <div className="p-4 space-y-6">
+                  {gradesWithHeats.map((grade) => {
+                    const gradeHeats = eventHeatsByGrade[grade] || [];
+                    return (
+                      <div key={grade} className="break-inside-avoid">
+                        <h3 className="font-bold text-lg mb-3 border-l-4 border-black pl-2 bg-gray-100 py-1">
+                          {grade} 年級 賽程分組表
+                        </h3>
+
+                        {event.type === 'group' ? (
+                          <div className="grid grid-cols-2 gap-4">
+                            {gradeHeats.map((heat: EventHeat) => {
+                              const teamA = heat.assignments[0];
+                              const teamB = heat.assignments[1];
+                              const extraTeams = heat.assignments.slice(2);
+                              return (
+                                <div key={heat.id} className="border border-gray-400 rounded p-3 break-inside-avoid">
+                                  <div className="font-bold text-center bg-gray-100 border-b border-gray-300 pb-1 mb-2 text-sm">
+                                    {heat.name}
+                                  </div>
+                                  <div className="flex items-center justify-around py-2 text-center">
+                                    <div className="flex-1">
+                                      <div className="text-[11px] text-gray-500">{teamA?.lane || '甲方'}</div>
+                                      <div className="text-lg font-extrabold mt-0.5">
+                                        {teamA?.classId ? `${teamA.classId} 班` : '輪空 / 待定'}
+                                      </div>
+                                    </div>
+                                    <div className="px-3 font-black text-gray-500 text-sm">VS</div>
+                                    <div className="flex-1">
+                                      <div className="text-[11px] text-gray-500">{teamB?.lane || '乙方'}</div>
+                                      <div className="text-lg font-extrabold mt-0.5">
+                                        {teamB?.classId ? `${teamB.classId} 班` : '輪空 / 待定'}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {extraTeams.length > 0 && (
+                                    <div className="mt-2 pt-2 border-t border-dashed border-gray-300 text-xs space-y-1">
+                                      {extraTeams.map((t, idx) => (
+                                        <div key={idx} className="flex justify-between">
+                                          <span className="text-gray-600">{t.lane}：</span>
+                                          <span className="font-bold">{t.classId ? `${t.classId} 班` : '-'}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  <div className="mt-2 pt-2 border-t border-gray-300 text-xs text-gray-600 flex justify-between">
+                                    <span>勝方紀錄：________________</span>
+                                    <span>裁判簽章：__________</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-4">
+                            {gradeHeats.map((heat: EventHeat) => (
+                              <div key={heat.id} className="border border-gray-400 rounded overflow-hidden break-inside-avoid">
+                                <div className="font-bold bg-gray-100 px-3 py-1.5 border-b border-gray-400 text-center text-sm">
+                                  {heat.name}
+                                </div>
+                                <table className="w-full text-xs border-collapse">
+                                  <thead>
+                                    <tr className="bg-gray-50 border-b border-gray-300">
+                                      <th className="border-r border-gray-300 p-1.5 w-20 text-center">道次</th>
+                                      <th className="border-r border-gray-300 p-1.5 w-16 text-center">班級</th>
+                                      <th className="border-r border-gray-300 p-1.5 text-left pl-2">選手姓名</th>
+                                      <th className="p-1.5 w-24 text-center">成績紀錄 ({event.unit})</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {heat.assignments.map((assign: HeatAssignment, idx: number) => {
+                                      // 即時從最新 results 抓取學生姓名，確保就算報名表後來改名也能同步更新
+                                      const latestName =
+                                        assign.classId
+                                          ? results[event.id]?.[assign.classId]?.[assign.studentIdx]?.studentName || assign.studentName || ''
+                                          : '';
+                                      return (
+                                        <tr key={idx} className="border-b border-gray-200 last:border-0">
+                                          <td className="border-r border-gray-300 p-1.5 text-center font-bold">{assign.lane}</td>
+                                          <td className="border-r border-gray-300 p-1.5 text-center font-bold text-sm">
+                                            {assign.classId || '-'}
+                                          </td>
+                                          <td className="border-r border-gray-300 p-1.5 pl-2 font-medium">
+                                            {latestName || (assign.classId ? '(未填姓名)' : '-')}
+                                          </td>
+                                          <td className="p-1.5"></td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
