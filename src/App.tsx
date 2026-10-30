@@ -46,8 +46,8 @@ const initFirebaseInstance = (key: ProjectKey, cfg: any) => {
 initFirebaseInstance('sports-day-2024-c035a', firebaseConfigA);
 initFirebaseInstance('jiashin-sports-day', firebaseConfigB);
 
-// 預設鎖定您原本的 jiashin-sports-2024 路徑，確保能直接讀取到您先前的報名與項目設定資料
-const DEFAULT_APP_ID = typeof (window as any).__app_id !== 'undefined' ? (window as any).__app_id : 'jiashin-sports-2024';
+// 預設鎖定您真正存放資料的路徑 ID
+const DEFAULT_APP_ID = typeof (window as any).__app_id !== 'undefined' ? (window as any).__app_id : 'sports-day-2024';
 
 type Grade = 7 | 8 | 9;
 
@@ -165,16 +165,16 @@ export const getFirestoreDocRef = (
     // 6層結構: sports-day / jiashin-sports-2024 / public / data / config / main
     return doc(database, 'sports-day', appId, 'public', 'data', docType, 'main');
   } else {
-    // artifacts 結構: artifacts / jiashin-sports-2024 / public / data / config / main
+    // artifacts 結構: artifacts / {appId} / public / data / config / main
     return doc(database, 'artifacts', appId, 'public', 'data', docType, 'main');
   }
 };
 
 export default function App() {
-  const [activeProject, setActiveProject] = useState<ProjectKey>('jiashin-sports-day');
+  const [activeProject, setActiveProject] = useState<ProjectKey>('sports-day-2024-c035a');
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [activeAppId, setActiveAppId] = useState<string>(DEFAULT_APP_ID);
-  const [pathMode, setPathMode] = useState<PathMode>('sports-day_4');
+  const [pathMode, setPathMode] = useState<PathMode>('artifacts_6');
   const [detectedPathLabel, setDetectedPathLabel] = useState<string>('自動偵測中...');
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [isRecorderMode, setIsRecorderMode] = useState(false);
@@ -283,8 +283,8 @@ export default function App() {
         setPathMode(bestPath);
         setDetectedPathLabel(bestPathLabel);
       } else {
-         // 如果都沒資料，預設回 fallback
-         setPathMode('sports-day_4');
+         // 如果都沒資料，預設回 fallback (對齊您截圖的結構)
+         setPathMode('artifacts_6');
       }
     };
 
