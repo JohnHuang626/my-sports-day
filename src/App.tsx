@@ -2387,5 +2387,6 @@ function PrintHeats({ config, results }: any) {
         </div>
       )}
     </div>
+    
   );
 }
