@@ -1,9 +1,20 @@
 import { useState, useEffect, useMemo } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 
-const localFirebaseConfig = {
+// 專案 A：您找出的正式版資料庫 (sports-day-2024-c035a)
+const firebaseConfigA = {
+  apiKey: "AIzaSyBF6CWSPOS1AVIIKrV95r4okSyZpPJYCbE",
+  authDomain: "sports-day-2024-c035a.firebaseapp.com",
+  projectId: "sports-day-2024-c035a",
+  storageBucket: "sports-day-2024-c035a.firebasestorage.app",
+  messagingSenderId: "43248608084",
+  appId: "1:43248608084:web:24a598d59a27d0c8349ec1"
+};
+
+// 專案 B：另一個備用資料庫 (jiashin-sports-day)
+const firebaseConfigB = {
   apiKey: 'AIzaSyA8N_mCRjfCtXB97OpIsiyVHds-bxOmUso',
   authDomain: 'jiashin-sports-day.firebaseapp.com',
   projectId: 'jiashin-sports-day',
@@ -12,31 +23,31 @@ const localFirebaseConfig = {
   appId: '1:758992182792:web:06fc7f9a00ad322a023bbd',
 };
 
-const envConfig = typeof window !== 'undefined' ? (window as any).__firebase_config : undefined;
-const firebaseConfig = envConfig ? JSON.parse(envConfig) : localFirebaseConfig;
+export type ProjectKey = 'sports-day-2024-c035a' | 'jiashin-sports-day';
 
-let app: any = null;
-let auth: any = null;
-let db: any = null;
-let isFirebaseReady = false;
+const firebaseInstances: Record<ProjectKey, { app: any; auth: any; db: any; ready: boolean }> = {
+  'sports-day-2024-c035a': { app: null, auth: null, db: null, ready: false },
+  'jiashin-sports-day': { app: null, auth: null, db: null, ready: false },
+};
 
-try {
-  if (firebaseConfig && firebaseConfig.apiKey) {
-    if (getApps().length > 0) {
-      app = getApp();
-    } else {
-      app = initializeApp(firebaseConfig);
-    }
-    auth = getAuth(app);
-    db = getFirestore(app);
-    isFirebaseReady = true;
+const initFirebaseInstance = (key: ProjectKey, cfg: any) => {
+  try {
+    const existing = getApps().find((a) => a.name === key);
+    const appInstance = existing || initializeApp(cfg, key);
+    const authInstance = getAuth(appInstance);
+    const dbInstance = getFirestore(appInstance);
+    firebaseInstances[key] = { app: appInstance, auth: authInstance, db: dbInstance, ready: true };
+  } catch (error) {
+    console.error(`Firebase Init Error (${key}):`, error);
   }
-} catch (error) {
-  console.error("Firebase Initialization Error:", error);
-}
+};
 
-// Global App ID for Firestore paths
-const appId = typeof (window as any).__app_id !== 'undefined' ? (window as any).__app_id : 'jiashin-sports-2024';
+// 預設啟動雙專案連線
+initFirebaseInstance('sports-day-2024-c035a', firebaseConfigA);
+initFirebaseInstance('jiashin-sports-day', firebaseConfigB);
+
+// 預設鎖定您原本的 jiashin-sports-2024 路徑，確保能直接讀取到您先前的報名與項目設定資料
+const DEFAULT_APP_ID = typeof (window as any).__app_id !== 'undefined' ? (window as any).__app_id : 'jiashin-sports-2024';
 
 type Grade = 7 | 8 | 9;
 
@@ -138,8 +149,33 @@ const LogoutIcon = () => (
   </svg>
 );
 
+// 支援您原本的 sports-day 結構與 artifacts 結構
+export type PathMode = 'sports-day_4' | 'sports-day_6' | 'artifacts_6';
+
+export const getFirestoreDocRef = (
+  database: any,
+  mode: PathMode,
+  appId: string,
+  docType: 'config' | 'results' | 'passwords'
+) => {
+  if (mode === 'sports-day_4') {
+    // 4層結構: sports-day / jiashin-sports-2024 / data / config
+    return doc(database, 'sports-day', appId, 'data', docType);
+  } else if (mode === 'sports-day_6') {
+    // 6層結構: sports-day / jiashin-sports-2024 / public / data / config / main
+    return doc(database, 'sports-day', appId, 'public', 'data', docType, 'main');
+  } else {
+    // artifacts 結構: artifacts / jiashin-sports-2024 / public / data / config / main
+    return doc(database, 'artifacts', appId, 'public', 'data', docType, 'main');
+  }
+};
+
 export default function App() {
+  const [activeProject, setActiveProject] = useState<ProjectKey>('jiashin-sports-day');
   const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [activeAppId, setActiveAppId] = useState<string>(DEFAULT_APP_ID);
+  const [pathMode, setPathMode] = useState<PathMode>('sports-day_4');
+  const [detectedPathLabel, setDetectedPathLabel] = useState<string>('自動偵測中...');
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [isRecorderMode, setIsRecorderMode] = useState(false);
   const [loggedInClass, setLoggedInClass] = useState<string | null>(null);
@@ -159,6 +195,11 @@ export default function App() {
   const [selectedLoginClass, setSelectedLoginClass] = useState('701');
   const [loginError, setLoginError] = useState('');
 
+  const currentInstance = firebaseInstances[activeProject];
+  const db = currentInstance.db;
+  const auth = currentInstance.auth;
+  const isFirebaseReady = currentInstance.ready;
+
   // Fallback for offline mode
   useEffect(() => {
     if (isOfflineMode && !config) {
@@ -172,14 +213,10 @@ export default function App() {
       return;
     }
 
+    setIsOfflineMode(false);
     const initAuth = async () => {
       try {
-        const envToken = typeof window !== 'undefined' ? (window as any).__initial_auth_token : undefined;
-        if (envToken) {
-          await signInWithCustomToken(auth, envToken);
-        } else {
-          await signInAnonymously(auth);
-        }
+        await signInAnonymously(auth);
       } catch (error: any) {
         console.warn("Auth blocked:", error);
         setIsOfflineMode(true);
@@ -188,16 +225,81 @@ export default function App() {
     initAuth();
     const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
     return () => unsubscribe();
-  }, []);
+  }, [activeProject, isFirebaseReady, auth]);
+
+  // 啟動或切換專案時，自動全方位探測該專案底下哪一個路徑有真實的比賽項目或報名資料
+  useEffect(() => {
+    if (isOfflineMode || !user || !db || !isFirebaseReady) return;
+
+    const autoDetectRealData = async () => {
+      // 調整優先順序：將 artifacts_6 移至最高優先級，因為您 Vercel 上的最新資料極可能都存在這個預設路徑中
+      const candidatePaths: { mode: PathMode; id: string }[] = [
+        { mode: 'artifacts_6', id: activeAppId },
+        { mode: 'sports-day_4', id: activeAppId },
+        { mode: 'sports-day_6', id: activeAppId },
+      ];
+
+      let bestPath: PathMode | null = null;
+      let maxDataScore = -1;
+      let bestPathLabel = '';
+
+      // 掃描所有路徑，自動選出「資料量最多（最新）」的那一個
+      for (const cand of candidatePaths) {
+        try {
+          const cRef = getFirestoreDocRef(db, cand.mode, cand.id, 'config');
+          const rRef = getFirestoreDocRef(db, cand.mode, cand.id, 'results');
+          const [cSnap, rSnap] = await Promise.all([getDoc(cRef), getDoc(rRef)]);
+
+          const rData = rSnap.exists() ? rSnap.data() : {};
+          const cData = cSnap.exists() ? cSnap.data() : {};
+          
+          let studentCount = 0;
+          Object.values(rData || {}).forEach((classMap: any) => {
+            if (classMap && typeof classMap === 'object') {
+              Object.values(classMap).forEach((arr: any) => {
+                if (Array.isArray(arr)) {
+                  arr.forEach((item: any) => {
+                    if (item?.studentName || item?.score) studentCount++;
+                  });
+                }
+              });
+            }
+          });
+
+          const eventCount = Array.isArray(cData?.events) ? cData.events.length : 0;
+          const dataScore = studentCount * 10 + eventCount; // 以報名人數與項目數量作為評分依據
+
+          if (dataScore > maxDataScore) {
+            maxDataScore = dataScore;
+            bestPath = cand.mode;
+            bestPathLabel = `[${activeProject}] ${cRef.path.replace('/config/main', '').replace('/config', '')}`;
+          }
+        } catch (e) {
+          // 忽略權限或路徑不存在的讀取錯誤
+        }
+      }
+
+      if (bestPath && maxDataScore > 0) {
+        setPathMode(bestPath);
+        setDetectedPathLabel(bestPathLabel);
+      } else {
+         // 如果都沒資料，預設回 fallback
+         setPathMode('sports-day_4');
+      }
+    };
+
+    autoDetectRealData();
+  }, [user, isOfflineMode, activeAppId, activeProject, db, isFirebaseReady]);
 
   useEffect(() => {
     if (isOfflineMode) return;
     if (!user || !db || !isFirebaseReady) return;
 
-    // Strict paths enforced here
-    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main');
-    const resultsRef = doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main');
-    const passwordsRef = doc(db, 'artifacts', appId, 'public', 'data', 'passwords', 'main');
+    const configRef = getFirestoreDocRef(db, pathMode, activeAppId, 'config');
+    const resultsRef = getFirestoreDocRef(db, pathMode, activeAppId, 'results');
+    const passwordsRef = getFirestoreDocRef(db, pathMode, activeAppId, 'passwords');
+
+    setDetectedPathLabel(`[${activeProject}] ${configRef.path.replace('/config', '')}`);
 
     const unsubConfig = onSnapshot(configRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -214,24 +316,24 @@ export default function App() {
             registrationOpen: data.registrationOpen !== false 
         });
       } else {
+        // 重要保護機制：當連線到資料庫發現該路徑沒有資料時，只在畫面載入預設模板，【絕對不自動覆寫回資料庫】！
         const initialConfig = { classes: DEFAULT_CLASSES, events: DEFAULT_EVENTS, registrationOpen: true };
-        setDoc(configRef, initialConfig).catch(() => setIsOfflineMode(true));
         setConfig(initialConfig);
       }
     }, () => setIsOfflineMode(true));
 
     const unsubResults = onSnapshot(resultsRef, (docSnap) => {
       if (docSnap.exists()) setResults(docSnap.data() as ResultsData);
-      else setDoc(resultsRef, {}).catch(console.warn);
+      else setResults({});
     }, (err) => console.warn("Results listener error:", err));
 
     const unsubPasswords = onSnapshot(passwordsRef, (docSnap) => {
       if (docSnap.exists()) setPasswords(docSnap.data() as Record<string, string>);
-      else setDoc(passwordsRef, {}).catch(console.warn);
+      else setPasswords({});
     }, (err) => console.warn("Passwords listener error:", err));
 
     return () => { unsubConfig(); unsubResults(); unsubPasswords(); };
-  }, [user, isOfflineMode]);
+  }, [user, isOfflineMode, activeAppId, pathMode, activeProject, db, isFirebaseReady]);
 
   const handleLoginSubmit = () => {
     setLoginError('');
@@ -322,9 +424,9 @@ export default function App() {
 
       <main className="max-w-5xl mx-auto p-4 print:hidden">
         {currentView === 'dashboard' && <Dashboard config={config} results={results} selectedGrade={selectedGrade} setSelectedGrade={setSelectedGrade} isStaff={isStaff} setPrintMode={setPrintMode} />}
-        {currentView === 'admin_input' && isStaff && <AdminInput config={config} results={results} isOffline={isOfflineMode} setResults={setResults} appId={appId} db={db} />}
-        {currentView === 'settings' && isAdminMode && <AdminSettings config={config} results={results} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} appId={appId} db={db} setPrintMode={setPrintMode} />}
-        {currentView === 'class_registration' && loggedInClass && <ClassRegistration config={config} results={results} isOffline={isOfflineMode} setResults={setResults} classId={loggedInClass} setPasswords={setPasswords} appId={appId} db={db} />}
+        {currentView === 'admin_input' && isStaff && <AdminInput config={config} results={results} isOffline={isOfflineMode} setResults={setResults} appId={activeAppId} pathMode={pathMode} db={db} />}
+        {currentView === 'settings' && isAdminMode && <AdminSettings config={config} results={results} passwords={passwords} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} appId={activeAppId} setActiveAppId={setActiveAppId} pathMode={pathMode} setPathMode={setPathMode} activeProject={activeProject} setActiveProject={setActiveProject} detectedPathLabel={detectedPathLabel} db={db} setPrintMode={setPrintMode} />}
+        {currentView === 'class_registration' && loggedInClass && <ClassRegistration config={config} results={results} isOffline={isOfflineMode} setResults={setResults} classId={loggedInClass} setPasswords={setPasswords} appId={activeAppId} pathMode={pathMode} db={db} />}
       </main>
 
       {currentView === 'dashboard' && <PrintReport config={config} results={results} />}
@@ -378,7 +480,7 @@ export default function App() {
   );
 }
 
-function ClassRegistration({ config, results, isOffline, setResults, classId, setPasswords, appId, db }: any) {
+function ClassRegistration({ config, results, isOffline, setResults, classId, setPasswords, appId, pathMode, db }: any) {
   const [localData, setLocalData] = useState<any>({});
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
@@ -429,7 +531,7 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
         Object.keys(localData).forEach(eventId => {
           payload[eventId] = { [classId]: localData[eventId] };
         });
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), payload, { merge: true });
+        await setDoc(getFirestoreDocRef(db, pathMode, appId, 'results'), payload, { merge: true });
         setMsg('✅ 報名資料儲存成功！');
       }
     } catch (e) {
@@ -448,7 +550,7 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
       if (isOffline) {
         setPasswords((prev: any) => ({ ...prev, [classId]: newPw }));
       } else {
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'passwords', 'main'), { [classId]: newPw }, { merge: true });
+        await setDoc(getFirestoreDocRef(db, pathMode, appId, 'passwords'), { [classId]: newPw }, { merge: true });
       }
       setPwStatusMsg('修改成功！請記得新密碼。');
       setTimeout(() => {
@@ -732,20 +834,20 @@ function ResultTable({ eventId, config, results, gradeFilter }: any) {
   );
 }
 
-function AdminInput({ config, results, isOffline, setResults, appId, db }: any) {
-  const [selectedEventId, setSelectedEventId] = useState(config.events[0]?.id);
+function AdminInput({ config, results, isOffline, setResults, appId, pathMode, db }: any) {
+  const [selectedEventId, setSelectedEventId] = useState(config?.events?.[0]?.id || '');
   const [selectedGrade, setSelectedGrade] = useState<Grade>(7);
   const [localScores, setLocalScores] = useState<any>({});
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
 
-  const selectedEvent = config.events.find((e: any) => e.id === selectedEventId);
+  const selectedEvent = config?.events?.find((e: any) => e.id === selectedEventId);
 
   useEffect(() => {
     if (!selectedEvent) return;
-    const current = results[selectedEventId] || {};
+    const current = results?.[selectedEventId] || {};
     const init: any = {};
-    config.classes.forEach((c: any) => {
+    (config?.classes || []).forEach((c: any) => {
       const existing = current[c.id] || [];
       const entries = [];
       const limit = selectedEvent.maxParticipants || 1;
@@ -770,7 +872,7 @@ function AdminInput({ config, results, isOffline, setResults, appId, db }: any) 
         setMsg('已暫存 (預覽模式)');
     } else {
         try {
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), { [selectedEventId]: localScores }, { merge: true });
+            await setDoc(getFirestoreDocRef(db, pathMode, appId, 'results'), { [selectedEventId]: localScores }, { merge: true });
             setMsg('成績儲存成功！');
         } catch (e) { 
             setMsg('儲存失敗，請檢查網路'); 
@@ -805,7 +907,7 @@ function AdminInput({ config, results, isOffline, setResults, appId, db }: any) 
 
       <div className="space-y-4 mb-8">
         <div className="flex text-xs text-slate-400 font-bold px-2"><div className="w-16">班級</div>{selectedEvent?.type === 'individual' && <div className="w-24 mr-2">姓名 (報名)</div>}<div className="flex-1">輸入{selectedEvent?.unit}</div></div>
-        {targets.map((c: any) => (
+        {(targets || []).map((c: any) => (
           <div key={c.id} className="border border-slate-100 p-2 rounded-lg bg-slate-50/50">
             {localScores[c.id]?.map((entry: any, idx: number) => (
               <div key={idx} className="flex gap-2 mb-2 last:mb-0 items-center">
@@ -819,21 +921,143 @@ function AdminInput({ config, results, isOffline, setResults, appId, db }: any) 
       </div>
 
       <div className="flex items-center gap-4">
-        <button onClick={handleSave} disabled={saving} className="flex-1 bg-green-600 text-white py-4 rounded-xl font-bold hover:bg-green-500 disabled:opacity-50 shadow-lg flex items-center justify-center gap-2">{saving ? '儲存中...' : <>💾 儲存變更</>}</button>
+        <button onClick={handleSave} disabled={saving} className="flex-1 bg-green-600 text-white py-4 rounded-xl font-bold hover:bg-green-500 disabled:opacity-50 shadow-lg flex items-center justify-center gap-2">{saving ? '儲存中...' : '💾 儲存變更'}</button>
         {msg && <span className="font-bold text-sm text-slate-600 animate-fade-in">{msg}</span>}
       </div>
     </div>
   );
 }
 
-function AdminSettings({ config, results, isOffline, setConfig, setResults, appId, db, setPrintMode }: any) {
+function AdminSettings({ config, results, passwords, isOffline, setConfig, setResults, appId, setActiveAppId, pathMode, setPathMode, activeProject, setActiveProject, detectedPathLabel, db, setPrintMode }: any) {
   const [localConfig, setLocalConfig] = useState(() => {
-    const copy = JSON.parse(JSON.stringify(config));
+    const copy = JSON.parse(JSON.stringify(config || {}));
     if (!copy.heats) copy.heats = {};
+    if (!copy.events) copy.events = [];
+    if (!copy.classes) copy.classes = [];
     return copy;
   });
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
-  
+  const [customAppIdInput, setCustomAppIdInput] = useState(appId);
+  const [scanReport, setScanReport] = useState<any[]>([]);
+  const [scanning, setScanning] = useState(false);
+
+  // 當切換資料庫路徑或外部 config 更新時，同步更新設定頁面的 localConfig
+  useEffect(() => {
+    const copy = JSON.parse(JSON.stringify(config || {}));
+    if (!copy.heats) copy.heats = {};
+    if (!copy.events) copy.events = [];
+    if (!copy.classes) copy.classes = [];
+    setLocalConfig(copy);
+  }, [config]);
+
+  // 自動掃描 Firebase 中所有可能存放資料的路徑
+  const runDatabaseScan = async () => {
+    if (isOffline || !db) return;
+    setScanning(true);
+    const candidates: { label: string; mode: PathMode; id: string }[] = [
+      { label: `sports-day / ${appId} / data (4層結構)`, mode: 'sports-day_4', id: appId },
+      { label: `artifacts / ${appId} / public / data (6層結構)`, mode: 'artifacts_6', id: appId },
+      { label: `sports-day / ${appId} / public / data (6層結構)`, mode: 'sports-day_6', id: appId },
+    ];
+
+    const report = [];
+    for (const cand of candidates) {
+      try {
+        const cRef = getFirestoreDocRef(db, cand.mode, cand.id, 'config');
+        const rRef = getFirestoreDocRef(db, cand.mode, cand.id, 'results');
+        const [cSnap, rSnap] = await Promise.all([getDoc(cRef), getDoc(rRef)]);
+
+        const cData = cSnap.exists() ? cSnap.data() : null;
+        const rData = rSnap.exists() ? rSnap.data() : null;
+
+        const eventNames = cData?.events?.map((e: any) => e.name) || [];
+        const resultEventKeys = rData ? Object.keys(rData) : [];
+        
+        // 計算總共有多少位學生報名紀錄
+        let studentCount = 0;
+        if (rData) {
+          Object.values(rData).forEach((classMap: any) => {
+            if (classMap && typeof classMap === 'object') {
+              Object.values(classMap).forEach((arr: any) => {
+                if (Array.isArray(arr)) {
+                  arr.forEach((item: any) => {
+                    if (item?.studentName || item?.score) studentCount++;
+                  });
+                }
+              });
+            }
+          });
+        }
+
+        report.push({
+          ...cand,
+          hasConfig: cSnap.exists(),
+          eventCount: eventNames.length,
+          eventNames: eventNames.join('、'),
+          hasResults: rSnap.exists(),
+          resultEventCount: resultEventKeys.length,
+          resultEventKeys,
+          studentCount,
+          rawResults: rData,
+        });
+      } catch (e: any) {
+        report.push({
+          ...cand,
+          error: e?.message || '讀取失敗',
+        });
+      }
+    }
+    setScanReport(report);
+    setScanning(false);
+  };
+
+  useEffect(() => {
+    runDatabaseScan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appId, isOffline]);
+
+  // 檢查目前的 results 中是否有「存在報名資料、但卻不在 config.events 裡」的遺失比賽項目
+  const orphanedEventIds = useMemo(() => {
+    const currentEventIds = new Set((localConfig.events || []).map((e: SportEvent) => e.id));
+    return Object.keys(results || {}).filter((evtId) => {
+      if (currentEventIds.has(evtId)) return false;
+      const classMap = results[evtId];
+      return classMap && typeof classMap === 'object' && Object.keys(classMap).length > 0;
+    });
+  }, [localConfig.events, results]);
+
+  // 一鍵從 results 中救回遺失的比賽項目到 config.events
+  const handleRecoverOrphanedEvents = () => {
+    if (orphanedEventIds.length === 0) return;
+    const recoveredEvents: SportEvent[] = orphanedEventIds.map((evtId, idx) => {
+      const classMap = results[evtId] || {};
+      let maxLen = 1;
+      let hasStudentName = false;
+      Object.values(classMap).forEach((arr: any) => {
+        if (Array.isArray(arr)) {
+          if (arr.length > maxLen) maxLen = arr.length;
+          if (arr.some((item: any) => item?.studentName)) hasStudentName = true;
+        }
+      });
+      return {
+        id: evtId,
+        name: `復原項目_${idx + 1} (${evtId.slice(-4)})`,
+        type: hasStudentName || maxLen > 1 ? 'individual' : 'group',
+        gender: 'Mixed',
+        unit: '成績',
+        sortBy: 'asc',
+        rankPoints: DEFAULT_POINTS,
+        maxParticipants: maxLen,
+      };
+    });
+    setLocalConfig((prev: any) => ({
+      ...prev,
+      events: [...prev.events, ...recoveredEvents],
+    }));
+    setMsg(`✅ 已成功從報名資料復原 ${recoveredEvents.length} 個遺失的項目！`);
+    setTimeout(() => setMsg(''), 4000);
+  };
+
   const [newName, setNewName] = useState('');
   const [newPoints, setNewPoints] = useState('7,5,4,3,2,1');
   const [newType, setNewType] = useState<EventType>('group');
@@ -847,7 +1071,7 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
   const [eventToDelete, setEventToDelete] = useState<string | null>(null);
 
   // 分組與賽程編排專用狀態
-  const [heatEventId, setHeatEventId] = useState<string>(config.events[0]?.id || '');
+  const [heatEventId, setHeatEventId] = useState<string>(config?.events?.[0]?.id || '');
   const [heatGrade, setHeatGrade] = useState<Grade>(7);
   const [autoAssignLanesCount, setAutoAssignLanesCount] = useState<number>(6);
 
@@ -858,7 +1082,7 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
   const [classToDelete, setClassToDelete] = useState<string | null>(null);
 
   // 取得目前選擇項目與年級的分組列表
-  const selectedHeatEvent = localConfig.events.find((e: SportEvent) => e.id === heatEventId);
+  const selectedHeatEvent = (localConfig.events || []).find((e: SportEvent) => e.id === heatEventId);
   const currentGradeHeats: EventHeat[] = localConfig.heats?.[heatEventId]?.[heatGrade] || [];
 
   const updateCurrentHeats = (newHeats: EventHeat[]) => {
@@ -877,7 +1101,7 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
   // 取得該年級在該項目所有可排入的選手或班級名單
   const availableParticipants = useMemo(() => {
     if (!selectedHeatEvent) return [];
-    const gradeClasses = localConfig.classes.filter((c: ClassInfo) => c.grade === heatGrade);
+    const gradeClasses = (localConfig.classes || []).filter((c: ClassInfo) => c.grade === heatGrade);
     const list: { key: string; classId: string; className: string; studentIdx: number; studentName: string; label: string }[] = [];
 
     if (selectedHeatEvent.type === 'group') {
@@ -893,7 +1117,7 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
       });
     } else {
       gradeClasses.forEach((c: ClassInfo) => {
-        const entries = results[heatEventId]?.[c.id] || [];
+        const entries = results?.[heatEventId]?.[c.id] || [];
         const max = selectedHeatEvent.maxParticipants || 1;
         for (let i = 0; i < max; i++) {
           const sName = entries[i]?.studentName?.trim() || '';
@@ -1141,9 +1365,9 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
 
   const handleEditEvent = (event: any) => {
     setEditingEventId(event.id);
-    setNewName(event.name);
-    setNewType(event.type);
-    setNewGender(event.gender);
+    setNewName(event.name || '');
+    setNewType(event.type || 'group');
+    setNewGender(event.gender || 'Mixed');
     setNewMax(event.maxParticipants || 1);
     setNewPoints(event.rankPoints ? event.rankPoints.join(', ') : '7,5,4,3,2,1');
     setNewSortRule(`${event.unit || '名次'}_${event.sortBy || 'asc'}`);
@@ -1177,7 +1401,7 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
         setMsg('✅ 已暫存設定 (預覽模式)');
     } else {
         try {
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main'), localConfig);
+            await setDoc(getFirestoreDocRef(db, pathMode, appId, 'config'), localConfig);
             setMsg('✅ 設定已儲存');
         } catch (e) { setMsg('❌ 儲存失敗'); }
     }
@@ -1196,7 +1420,7 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
         setResults({});
         setMsg('已清空 (預覽模式)');
       } else {
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), {});
+        await setDoc(getFirestoreDocRef(db, pathMode, appId, 'results'), {});
         setMsg('成績已全部清空！');
       }
       setConfirmClear(false);
@@ -1218,8 +1442,175 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
     return s;
   }, [currentGradeHeats]);
 
+  // 匯出完整 JSON 備份檔
+  const handleExportBackup = () => {
+    const backupData = {
+      timestamp: new Date().toISOString(),
+      appId,
+      config: localConfig,
+      results,
+      passwords,
+    };
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `嘉新運動會完整備份_${appId}_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setMsg('✅ 已下載完整備份檔案！');
+    setTimeout(() => setMsg(''), 3000);
+  };
+
+  // 匯入 JSON 備份檔還原
+  const handleImportBackup = (e: any) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (parsed.config) {
+          setLocalConfig(parsed.config);
+          setConfig(parsed.config);
+          if (!isOffline) {
+            await setDoc(getFirestoreDocRef(db, pathMode, appId, 'config'), parsed.config);
+          }
+        }
+        if (parsed.results) {
+          setResults(parsed.results);
+          if (!isOffline) {
+            await setDoc(getFirestoreDocRef(db, pathMode, appId, 'results'), parsed.results);
+          }
+        }
+        if (parsed.passwords && !isOffline) {
+          await setDoc(getFirestoreDocRef(db, pathMode, appId, 'passwords'), parsed.passwords);
+        }
+        setMsg('🎉 備份資料已成功還原至系統！');
+        setTimeout(() => setMsg(''), 4000);
+      } catch (err) {
+        setMsg('❌ 備份檔案格式錯誤，無法還原');
+        setTimeout(() => setMsg(''), 3000);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="space-y-6 pb-24 max-w-3xl mx-auto relative">
+      {/* 資料庫連線狀態與備份救援中心 */}
+      <div className="bg-blue-50 border border-blue-200 p-5 rounded-xl shadow-sm space-y-3">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+          <div>
+            <h3 className="font-bold text-blue-900 flex items-center gap-2">
+              🛡️ 雲端資料庫連線與備份救援中心
+            </h3>
+            <p className="text-xs text-blue-700 mt-0.5">
+              目前讀取位置：<code className="bg-white px-1.5 py-0.5 rounded border font-bold text-blue-900">{detectedPathLabel}</code>
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleExportBackup}
+              className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700 shadow-sm whitespace-nowrap"
+            >
+              ⬇️ 下載完整備份 (.json)
+            </button>
+            <label className="bg-white text-blue-700 border border-blue-300 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-100 cursor-pointer shadow-sm whitespace-nowrap">
+              ⬆️ 匯入備份還原
+              <input type="file" accept=".json" onChange={handleImportBackup} className="hidden" />
+            </label>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-blue-200/60 text-xs">
+          <span className="font-bold text-blue-800">1. 切換 Firebase 專案：</span>
+          <button
+            onClick={() => {
+              setActiveProject('sports-day-2024-c035a');
+              setMsg('🔄 已切換至 sports-day-2024-c035a 專案！');
+              setTimeout(() => setMsg(''), 3000);
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold transition ${
+              activeProject === 'sports-day-2024-c035a'
+                ? 'bg-indigo-600 text-white shadow'
+                : 'bg-white text-indigo-700 border border-indigo-300 hover:bg-indigo-50'
+            }`}
+          >
+            🔥 專案 A：sports-day-2024-c035a
+          </button>
+          <button
+            onClick={() => {
+              setActiveProject('jiashin-sports-day');
+              setMsg('🔄 已切換至 jiashin-sports-day 專案！');
+              setTimeout(() => setMsg(''), 3000);
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold transition ${
+              activeProject === 'jiashin-sports-day'
+                ? 'bg-indigo-600 text-white shadow'
+                : 'bg-white text-indigo-700 border border-indigo-300 hover:bg-indigo-50'
+            }`}
+          >
+            🔥 專案 B：jiashin-sports-day
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-blue-200/60 text-xs">
+          <span className="font-bold text-blue-800">2. 切換集合資料夾：</span>
+          <button
+            onClick={() => {
+              setPathMode('artifacts_6');
+              setMsg('🔄 已切換至 artifacts 資料夾！');
+              setTimeout(() => setMsg(''), 3000);
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold transition ${
+              pathMode === 'artifacts_6'
+                ? 'bg-blue-600 text-white shadow'
+                : 'bg-white text-blue-700 border border-blue-300 hover:bg-blue-100'
+            }`}
+          >
+            📂 artifacts / {appId} / public / data
+          </button>
+          <button
+            onClick={() => {
+              setPathMode('sports-day_4');
+              setMsg('🔄 已切換至 sports-day (4層) 資料夾！');
+              setTimeout(() => setMsg(''), 3000);
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold transition ${
+              pathMode === 'sports-day_4'
+                ? 'bg-blue-600 text-white shadow'
+                : 'bg-white text-blue-700 border border-blue-300 hover:bg-blue-100'
+            }`}
+          >
+            📂 sports-day / {appId} / data
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-blue-200/60 text-xs">
+          <span className="font-bold text-blue-800">3. 文件 ID (appId)：</span>
+          <input
+            type="text"
+            value={customAppIdInput}
+            onChange={(e) => setCustomAppIdInput(e.target.value)}
+            className="border border-blue-300 rounded px-2 py-1 font-mono bg-white text-slate-700 w-48"
+            placeholder="預設: jiashin-sports-2024"
+          />
+          <button
+            onClick={() => {
+              if (customAppIdInput.trim()) {
+                setActiveAppId(customAppIdInput.trim());
+                setMsg(`🔄 已切換讀取 ID 至: ${customAppIdInput.trim()}`);
+                setTimeout(() => setMsg(''), 3000);
+              }
+            }}
+            className="bg-slate-700 text-white px-3 py-1 rounded font-bold hover:bg-slate-800"
+          >
+            套用 ID
+          </button>
+        </div>
+      </div>
+
       <div className="bg-white p-6 rounded-xl shadow flex justify-between items-center">
         <div>
           <h3 className="font-bold text-lg flex items-center gap-2">📝 開放各班線上報名</h3>
@@ -1279,7 +1670,7 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
               value={heatEventId}
               onChange={(e) => setHeatEventId(e.target.value)}
             >
-              {localConfig.events.map((ev: SportEvent) => (
+              {(localConfig.events || []).map((ev: SportEvent) => (
                 <option key={ev.id} value={ev.id}>
                   [{ev.type === 'group' ? '團體' : '個人'}] {getEventDisplayName(ev)}
                 </option>
@@ -1521,7 +1912,7 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
         </div>
 
         <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
-          {localConfig.events.map((e: any) => (
+          {(localConfig.events || []).map((e: any) => (
             <div key={e.id} className={`flex gap-2 items-center border p-2 rounded transition ${editingEventId === e.id ? 'bg-yellow-100 border-yellow-400' : 'bg-white hover:bg-slate-50'}`}>
               <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${e.type === 'group' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>{e.type === 'group' ? '團體' : '個人'}</span>
               
@@ -1563,7 +1954,7 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
 
         <div className="space-y-6">
           {[7, 8, 9].map(grade => {
-            const gradeClasses = localConfig.classes.filter((c: any) => c.grade === grade);
+            const gradeClasses = (localConfig.classes || []).filter((c: any) => c.grade === grade);
             return (
               <div key={grade} className="border border-slate-100 rounded-lg overflow-hidden">
                 <div className="bg-slate-100 px-3 py-2 font-bold text-slate-700 border-b">
