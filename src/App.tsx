@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 
@@ -1609,6 +1609,53 @@ function AdminSettings({ config, results, passwords, isOffline, setConfig, setRe
             套用 ID
           </button>
         </div>
+
+        {/* 資料庫掃描報告與遺失項目救援 */}
+        <div className="flex flex-col gap-2 pt-4 mt-2 border-t border-blue-200/60">
+          <div className="flex justify-between items-center">
+            <span className="font-bold text-blue-800 text-xs">4. 資料庫掃描報告與救援：</span>
+            <button
+              onClick={runDatabaseScan}
+              disabled={scanning}
+              className="bg-blue-200 text-blue-800 px-3 py-1 rounded text-xs font-bold hover:bg-blue-300 transition"
+            >
+              {scanning ? '掃描中...' : '重新掃描'}
+            </button>
+          </div>
+          
+          {scanReport.length > 0 && (
+            <div className="space-y-2 text-xs">
+              {scanReport.map((rep, i) => (
+                <div key={i} className={`p-2 rounded border ${rep.error ? 'bg-red-50 border-red-200' : 'bg-white border-blue-100'}`}>
+                  <div className="font-bold text-slate-700">{rep.label}</div>
+                  {rep.error ? (
+                    <div className="text-red-500 mt-1">{rep.error}</div>
+                  ) : (
+                    <div className="text-slate-600 mt-1 flex flex-wrap gap-x-4">
+                      <span>設定檔: {rep.hasConfig ? '✅ 存在' : '❌ 無'} ({rep.eventCount} 項目)</span>
+                      <span>報名表: {rep.hasResults ? '✅ 存在' : '❌ 無'} ({rep.studentCount} 筆紀錄)</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {orphanedEventIds.length > 0 && (
+            <div className="mt-2 bg-amber-50 border border-amber-200 p-3 rounded-lg flex justify-between items-center">
+              <div>
+                <div className="text-amber-800 font-bold text-sm">💡 發現隱藏的報名資料！</div>
+                <div className="text-amber-700 text-xs mt-0.5">有 {orphanedEventIds.length} 個項目在報名表中，但不在目前的設定列表內。</div>
+              </div>
+              <button
+                onClick={handleRecoverOrphanedEvents}
+                className="bg-amber-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-amber-600 shadow-sm whitespace-nowrap ml-2"
+              >
+                🛠️ 復原遺失項目
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow flex justify-between items-center">
@@ -2387,6 +2434,5 @@ function PrintHeats({ config, results }: any) {
         </div>
       )}
     </div>
-    
   );
 }
