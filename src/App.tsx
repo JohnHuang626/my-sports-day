@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
@@ -44,6 +44,7 @@ interface ClassInfo {
   id: string;
   name: string;
   grade: Grade;
+  students?: string[];
 }
 
 type EventType = 'group' | 'individual';
@@ -323,7 +324,7 @@ export default function App() {
       <main className="max-w-5xl mx-auto p-4 print:hidden">
         {currentView === 'dashboard' && <Dashboard config={config} results={results} selectedGrade={selectedGrade} setSelectedGrade={setSelectedGrade} isStaff={isStaff} setPrintMode={setPrintMode} />}
         {currentView === 'admin_input' && isStaff && <AdminInput config={config} results={results} isOffline={isOfflineMode} setResults={setResults} appId={appId} db={db} />}
-        {currentView === 'settings' && isAdminMode && <AdminSettings config={config} results={results} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} appId={appId} db={db} setPrintMode={setPrintMode} />}
+        {currentView === 'settings' && isAdminMode && <AdminSettings config={config} results={results} passwords={passwords} isOffline={isOfflineMode} setConfig={setConfig} setResults={setResults} setPasswords={setPasswords} appId={appId} db={db} setPrintMode={setPrintMode} />}
         {currentView === 'class_registration' && loggedInClass && <ClassRegistration config={config} results={results} isOffline={isOfflineMode} setResults={setResults} classId={loggedInClass} setPasswords={setPasswords} appId={appId} db={db} />}
       </main>
 
@@ -386,6 +387,9 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
   const [showPwModal, setShowPwModal] = useState(false);
   const [newPw, setNewPw] = useState('');
   const [pwStatusMsg, setPwStatusMsg] = useState('');
+
+  const classInfo = config.classes.find((c: any) => c.id === classId);
+  const studentOptions = classInfo?.students || [];
 
   // Ensures data is only populated once per classId change to prevent overwriting during input
   useEffect(() => {
@@ -492,7 +496,20 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
               {localData[ev.id]?.map((entry: any, idx: number) => (
                 <div key={idx} className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-400 w-5">{idx + 1}.</span>
-                  <input type="text" placeholder="請輸入姓名" className="flex-1 border p-2 rounded text-sm focus:ring-2 focus:ring-blue-400 outline-none" value={entry.studentName || ''} onChange={e => handleChange(ev.id, idx, e.target.value)} />
+                  {studentOptions.length > 0 ? (
+                    <select
+                      className="flex-1 border p-2 rounded text-sm focus:ring-2 focus:ring-blue-400 outline-none bg-white"
+                      value={entry.studentName || ''}
+                      onChange={e => handleChange(ev.id, idx, e.target.value)}
+                    >
+                      <option value="">-- 請選擇參賽選手 --</option>
+                      {studentOptions.map((name: string, i: number) => (
+                        <option key={i} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input type="text" placeholder="請輸入姓名" className="flex-1 border p-2 rounded text-sm focus:ring-2 focus:ring-blue-400 outline-none" value={entry.studentName || ''} onChange={e => handleChange(ev.id, idx, e.target.value)} />
+                  )}
                 </div>
               ))}
             </div>
@@ -826,7 +843,7 @@ function AdminInput({ config, results, isOffline, setResults, appId, db }: any) 
   );
 }
 
-function AdminSettings({ config, results, isOffline, setConfig, setResults, appId, db, setPrintMode }: any) {
+function AdminSettings({ config, results, passwords, isOffline, setConfig, setResults, setPasswords, appId, db, setPrintMode }: any) {
   const [localConfig, setLocalConfig] = useState(() => {
     const copy = JSON.parse(JSON.stringify(config));
     if (!copy.heats) copy.heats = {};
@@ -856,6 +873,9 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
   const [newClassName, setNewClassName] = useState('');
   const [newClassGrade, setNewClassGrade] = useState<Grade>(7);
   const [classToDelete, setClassToDelete] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   // 取得目前選擇項目與年級的分組列表
   const selectedHeatEvent = localConfig.events.find((e: SportEvent) => e.id === heatEventId);
@@ -1207,6 +1227,119 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
     }
   };
 
+  const handleExport = () => {
+    const backup = { config, results, passwords };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sports_day_backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = async (e: any) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (json.config && json.results) {
+          if (isOffline) {
+            setConfig(json.config);
+            setResults(json.results);
+            if (json.passwords) setPasswords(json.passwords);
+            setLocalConfig(json.config);
+            setMsg('✅ 已載入備份 (預覽模式)');
+          } else {
+            setSaving(true);
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'main'), json.config);
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', 'main'), json.results);
+            if (json.passwords) {
+              await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'passwords', 'main'), json.passwords);
+            }
+            setLocalConfig(json.config);
+            setSaving(false);
+            setMsg('✅ 備份還原成功！');
+          }
+        } else {
+          setMsg('❌ 備份檔格式錯誤');
+        }
+      } catch (error) {
+        setMsg('❌ 讀取檔案失敗');
+      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  const downloadCsvTemplate = () => {
+    const BOM = "\uFEFF"; // 確保 Excel 開啟時能正常讀取 UTF-8
+    const csvContent = BOM + "年級,班級,姓名\n7,701,王大明\n7,701,陳小華\n8,801,林美麗\n8,802,張大頭\n";
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = "學生名條匯入範本.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportCsv = (e: any) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) {
+        setMsg('❌ 檔案格式錯誤或無資料');
+        return;
+      }
+      const dataLines = lines.slice(1);
+      const newClassesMap = new Map<string, ClassInfo>();
+      
+      dataLines.forEach(line => {
+        const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+        if (cols.length >= 3) {
+          const grade = parseInt(cols[0]);
+          const className = cols[1];
+          const studentName = cols[2];
+          
+          if ([7, 8, 9].includes(grade) && className && studentName) {
+            if (!newClassesMap.has(className)) {
+              newClassesMap.set(className, { id: className, name: className, grade: grade as Grade, students: [] });
+            }
+            newClassesMap.get(className)!.students!.push(studentName);
+          }
+        }
+      });
+
+      if (newClassesMap.size > 0) {
+        setLocalConfig((prev: any) => {
+          const nextClasses = [...prev.classes];
+          newClassesMap.forEach((newClass, className) => {
+            const existingIdx = nextClasses.findIndex(c => c.id === className);
+            if (existingIdx >= 0) {
+              nextClasses[existingIdx] = { ...nextClasses[existingIdx], students: newClass.students, grade: newClass.grade };
+            } else {
+              nextClasses.push(newClass);
+            }
+          });
+          return { ...prev, classes: nextClasses.sort((a,b) => a.id.localeCompare(b.id)) };
+        });
+        setMsg('✅ 名條匯入成功！(請點擊最下方儲存)');
+        setTimeout(() => setMsg(''), 4000);
+      } else {
+        setMsg('❌ 找不到有效的資料行，請檢查範本格式');
+        setTimeout(() => setMsg(''), 4000);
+      }
+      if (csvInputRef.current) csvInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
   // 統計某選手/班級是否已被排入當前項目分組中
   const assignedKeysSet = useMemo(() => {
     const s = new Set<string>();
@@ -1542,8 +1675,17 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow">
-        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><span className="text-indigo-500">🏫</span> 班級管理</h3>
-        <p className="text-sm text-slate-500 mb-4">新增或移除各年級的班級。修改後請記得點擊右下角儲存。</p>
+        <div className="flex flex-col md:flex-row justify-between md:items-center mb-4 gap-3">
+          <div>
+            <h3 className="font-bold text-lg flex items-center gap-2"><span className="text-indigo-500">🏫</span> 班級與學生名單管理</h3>
+            <p className="text-sm text-slate-500">新增或移除班級，或透過「CSV」大量匯入學生名單供報名系統下拉使用。</p>
+          </div>
+          <div className="flex gap-2 items-center">
+            <button onClick={downloadCsvTemplate} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg border border-slate-300 font-bold transition">📋 下載匯入範本</button>
+            <input type="file" accept=".csv" className="hidden" ref={csvInputRef} onChange={handleImportCsv} />
+            <button onClick={() => csvInputRef.current?.click()} className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg font-bold transition shadow flex items-center gap-1">📥 匯入學生名條</button>
+          </div>
+        </div>
         
         <div className="flex flex-wrap items-end gap-2 mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
           <div className="flex-1 min-w-[150px]">
@@ -1574,6 +1716,7 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
                     gradeClasses.map((c: any) => (
                       <div key={c.id} className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded px-2 py-1">
                         <span className="font-bold text-slate-700">{c.name}</span>
+                        {c.students && c.students.length > 0 && <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 rounded-full font-bold">{c.students.length}人</span>}
                         <button onClick={() => confirmRemoveClass(c.id)} className="text-slate-400 hover:text-red-500 ml-1 transition" title="移除班級">✖</button>
                       </div>
                     ))
@@ -1587,7 +1730,23 @@ function AdminSettings({ config, results, isOffline, setConfig, setResults, appI
         </div>
       </div>
 
-      <div className="bg-red-50 border border-red-200 p-6 rounded-xl shadow-sm">
+      <div className="bg-white p-6 rounded-xl shadow mt-6">
+        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><span className="text-teal-500">💾</span> 系統資料備份與還原</h3>
+        <p className="text-sm text-slate-500 mb-4">將目前的賽事設定、班級、報名名單與成績等打包下載為 JSON 備份檔，或從備份檔還原。</p>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button onClick={handleExport} className="border-2 border-teal-500 text-teal-600 bg-teal-50 hover:bg-teal-100 px-4 py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition">
+            📤 匯出備份資料 (.json)
+          </button>
+          
+          <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImport} />
+          <button onClick={() => fileInputRef.current?.click()} className="border-2 border-orange-500 text-orange-600 bg-orange-50 hover:bg-orange-100 px-4 py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition">
+            📥 匯入備份資料還原
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-red-50 border border-red-200 p-6 rounded-xl shadow-sm mt-6">
         <h3 className="font-bold text-red-600 mb-2">⚠️ 危險操作區</h3>
         <p className="text-sm text-red-500 mb-4">這將會清空「所有」已經登錄的成績與各班報名名單，供下一次運動會重新開始使用。此操作無法復原。</p>
         <button onClick={handleClearAllResults} className={`w-full py-3 rounded-lg font-bold border-2 transition ${confirmClear ? 'bg-red-600 text-white border-red-600 animate-pulse' : 'text-red-500 border-red-200 hover:bg-red-100'}`}>
