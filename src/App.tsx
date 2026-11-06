@@ -2101,54 +2101,111 @@ function PrintHeats({ config, results }: any) {
                                       ))}
                                     </div>
                                   )}
-                                  <div className="mt-2 pt-2 border-t border-gray-300 text-xs text-gray-600 flex justify-between">
-                                    <span>勝方紀錄：________________</span>
-                                    <span>裁判簽章：__________</span>
-                                  </div>
+                                  {event.name.includes('拔河') ? (
+                                    <div className="mt-2 pt-2 border-t border-gray-300 text-[10px] text-gray-600 flex flex-col gap-1.5">
+                                      <div className="flex justify-between">
+                                        <span>第1局：________</span>
+                                        <span>第2局：________</span>
+                                        <span>第3局：________</span>
+                                      </div>
+                                      <div className="flex justify-between mt-1 pt-1 border-t border-dashed border-gray-200">
+                                        <span className="font-bold text-black text-xs">勝方：____________</span>
+                                        <span className="text-xs">裁判：________</span>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="mt-2 pt-2 border-t border-gray-300 text-xs text-gray-600 flex justify-between">
+                                      <span>勝方紀錄：________________</span>
+                                      <span>裁判簽章：__________</span>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
                           </div>
                         ) : (
-                          <div className="grid grid-cols-2 gap-4">
-                            {gradeHeats.map((heat: EventHeat) => (
-                              <div key={heat.id} className="border border-gray-400 rounded overflow-hidden break-inside-avoid">
-                                <div className="font-bold bg-gray-100 px-3 py-1.5 border-b border-gray-400 text-center text-sm">
-                                  {heat.name}
+                          <div className={`grid gap-4 ${event.name.includes('跳') || event.name.includes('鉛球') ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                            {gradeHeats.map((heat: EventHeat) => {
+                              const isLongJump = event.name.includes('跳遠') || event.name.includes('鉛球');
+                              const isHighJump = event.name.includes('跳高');
+
+                              return (
+                                <div key={heat.id} className="border border-gray-400 rounded overflow-hidden break-inside-avoid">
+                                  <div className="font-bold bg-gray-100 px-3 py-1.5 border-b border-gray-400 text-center text-sm">
+                                    {heat.name}
+                                  </div>
+                                  <table className="w-full text-xs border-collapse">
+                                    <thead>
+                                      <tr className="bg-gray-50 border-b border-gray-300">
+                                        <th className="border-r border-gray-300 p-1.5 w-16 text-center">道次</th>
+                                        <th className="border-r border-gray-300 p-1.5 w-16 text-center">班級</th>
+                                        <th className="border-r border-gray-300 p-1.5 text-left pl-2">選手姓名</th>
+                                        {isLongJump ? (
+                                          <>
+                                            <th className="border-r border-gray-300 p-1.5 w-20 text-center">第一次</th>
+                                            <th className="border-r border-gray-300 p-1.5 w-20 text-center">第二次</th>
+                                            <th className="border-r border-gray-300 p-1.5 w-20 text-center">第三次</th>
+                                            <th className="p-1.5 w-24 text-center">最佳成績</th>
+                                          </>
+                                        ) : isHighJump ? (
+                                          <>
+                                            <th className="border-r border-gray-300 p-1 text-center w-12 font-normal text-[10px] text-gray-500">高度<br/>____</th>
+                                            <th className="border-r border-gray-300 p-1 text-center w-12 font-normal text-[10px] text-gray-500">高度<br/>____</th>
+                                            <th className="border-r border-gray-300 p-1 text-center w-12 font-normal text-[10px] text-gray-500">高度<br/>____</th>
+                                            <th className="border-r border-gray-300 p-1 text-center w-12 font-normal text-[10px] text-gray-500">高度<br/>____</th>
+                                            <th className="border-r border-gray-300 p-1 text-center w-12 font-normal text-[10px] text-gray-500">高度<br/>____</th>
+                                            <th className="border-r border-gray-300 p-1 text-center w-12 font-normal text-[10px] text-gray-500">高度<br/>____</th>
+                                            <th className="p-1.5 w-20 text-center">成績</th>
+                                          </>
+                                        ) : (
+                                          <th className="p-1.5 w-24 text-center">成績紀錄 ({event.unit})</th>
+                                        )}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {heat.assignments.map((assign: HeatAssignment, idx: number) => {
+                                        // 即時從最新 results 抓取學生姓名，確保就算報名表後來改名也能同步更新
+                                        const latestName =
+                                          assign.classId
+                                            ? results[event.id]?.[assign.classId]?.[assign.studentIdx]?.studentName || assign.studentName || ''
+                                            : '';
+                                        return (
+                                          <tr key={idx} className="border-b border-gray-200 last:border-0 h-8">
+                                            <td className="border-r border-gray-300 p-1.5 text-center font-bold">{assign.lane}</td>
+                                            <td className="border-r border-gray-300 p-1.5 text-center font-bold text-sm">
+                                              {assign.classId || '-'}
+                                            </td>
+                                            <td className="border-r border-gray-300 p-1.5 pl-2 font-medium">
+                                              {latestName || (assign.classId ? '(未填姓名)' : '-')}
+                                            </td>
+                                            {isLongJump ? (
+                                              <>
+                                                <td className="border-r border-gray-300 p-1.5"></td>
+                                                <td className="border-r border-gray-300 p-1.5"></td>
+                                                <td className="border-r border-gray-300 p-1.5"></td>
+                                                <td className="p-1.5"></td>
+                                              </>
+                                            ) : isHighJump ? (
+                                              <>
+                                                <td className="border-r border-gray-300 p-1.5 h-10"></td>
+                                                <td className="border-r border-gray-300 p-1.5 h-10"></td>
+                                                <td className="border-r border-gray-300 p-1.5 h-10"></td>
+                                                <td className="border-r border-gray-300 p-1.5 h-10"></td>
+                                                <td className="border-r border-gray-300 p-1.5 h-10"></td>
+                                                <td className="border-r border-gray-300 p-1.5 h-10"></td>
+                                                <td className="p-1.5 h-10"></td>
+                                              </>
+                                            ) : (
+                                              <td className="p-1.5"></td>
+                                            )}
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
                                 </div>
-                                <table className="w-full text-xs border-collapse">
-                                  <thead>
-                                    <tr className="bg-gray-50 border-b border-gray-300">
-                                      <th className="border-r border-gray-300 p-1.5 w-20 text-center">道次</th>
-                                      <th className="border-r border-gray-300 p-1.5 w-16 text-center">班級</th>
-                                      <th className="border-r border-gray-300 p-1.5 text-left pl-2">選手姓名</th>
-                                      <th className="p-1.5 w-24 text-center">成績紀錄 ({event.unit})</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {heat.assignments.map((assign: HeatAssignment, idx: number) => {
-                                      // 即時從最新 results 抓取學生姓名，確保就算報名表後來改名也能同步更新
-                                      const latestName =
-                                        assign.classId
-                                          ? results[event.id]?.[assign.classId]?.[assign.studentIdx]?.studentName || assign.studentName || ''
-                                          : '';
-                                      return (
-                                        <tr key={idx} className="border-b border-gray-200 last:border-0">
-                                          <td className="border-r border-gray-300 p-1.5 text-center font-bold">{assign.lane}</td>
-                                          <td className="border-r border-gray-300 p-1.5 text-center font-bold text-sm">
-                                            {assign.classId || '-'}
-                                          </td>
-                                          <td className="border-r border-gray-300 p-1.5 pl-2 font-medium">
-                                            {latestName || (assign.classId ? '(未填姓名)' : '-')}
-                                          </td>
-                                          <td className="p-1.5"></td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>
