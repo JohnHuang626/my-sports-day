@@ -388,8 +388,14 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
   const [newPw, setNewPw] = useState('');
   const [pwStatusMsg, setPwStatusMsg] = useState('');
 
-  const classInfo = config.classes.find((c: any) => c.id === classId);
-  const studentOptions = classInfo?.students || [];
+  // 取得目前班級資訊及學生名單選項
+  const classInfo = useMemo(() => {
+    return config.classes.find((c: any) => String(c.id) === String(classId));
+  }, [config.classes, classId]);
+
+  const studentOptions = useMemo(() => {
+    return classInfo?.students || [];
+  }, [classInfo]);
 
   // Ensures data is only populated once per classId change to prevent overwriting during input
   useEffect(() => {
@@ -410,7 +416,7 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
 
   const handleChange = (eventId: string, idx: number, val: string) => {
     setLocalData((prev: any) => {
-      const copy = [...prev[eventId]];
+      const copy = [...(prev[eventId] || [])];
       copy[idx] = { ...copy[idx], studentName: val };
       return { ...prev, [eventId]: copy };
     });
@@ -498,17 +504,17 @@ function ClassRegistration({ config, results, isOffline, setResults, classId, se
                   <span className="text-xs font-bold text-slate-400 w-5">{idx + 1}.</span>
                   {studentOptions.length > 0 ? (
                     <select
-                      className="flex-1 border p-2 rounded text-sm focus:ring-2 focus:ring-blue-400 outline-none bg-white"
+                      className="flex-1 border p-2 rounded text-sm focus:ring-2 focus:ring-blue-400 outline-none bg-white font-medium"
                       value={entry.studentName || ''}
                       onChange={e => handleChange(ev.id, idx, e.target.value)}
                     >
-                      <option value="">-- 請選擇參賽選手 --</option>
+                      <option value="">-- 請選擇參賽選手 ({studentOptions.length}位名單) --</option>
                       {studentOptions.map((name: string, i: number) => (
                         <option key={i} value={name}>{name}</option>
                       ))}
                     </select>
                   ) : (
-                    <input type="text" placeholder="請輸入姓名" className="flex-1 border p-2 rounded text-sm focus:ring-2 focus:ring-blue-400 outline-none" value={entry.studentName || ''} onChange={e => handleChange(ev.id, idx, e.target.value)} />
+                    <input type="text" placeholder="請輸入姓名 (若無名條)" className="flex-1 border p-2 rounded text-sm focus:ring-2 focus:ring-blue-400 outline-none" value={entry.studentName || ''} onChange={e => handleChange(ev.id, idx, e.target.value)} />
                   )}
                 </div>
               ))}
